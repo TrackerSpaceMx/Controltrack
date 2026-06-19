@@ -221,6 +221,9 @@ function ClientSearchFilter({ value, onChange, allClients }: {
 
 export function Dashboard({ onLogout, session }: DashboardProps) {
 
+  // viewer solo puede ver, no modificar
+  const isViewer = session?.role === "viewer" && !session?.is_superadmin;
+
   const [activeTab, setActiveTab] = useState<"dashboard" | "charts">("dashboard");
 
   const [devices,    setDevices]    = useState<DeviceRecord[]>([]);
@@ -608,7 +611,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
               {/* Toolbar */}
               <div className="px-4 py-2.5 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                 <div className="flex items-center gap-2">
-                  {selectedIds.size > 0 ? (
+                  {!isViewer && selectedIds.size > 0 ? (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-300 bg-slate-800 px-2 py-1 rounded-lg">
                         {selectedIds.size} seleccionados
@@ -751,31 +754,35 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                               </td>
                               <td className="px-3 py-2.5"><span className={`text-xs ${dl.cls}`}>{dl.text}</span></td>
                               <td className="px-3 py-2.5"><StatusBadge status={device.status as any} /></td>
-                              {/* Acciones — siempre visible */}
+                              {/* Acciones — ocultas para viewer */}
                               <td className="px-3 py-2.5">
                                 <div className="flex items-center justify-end space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button
-                                    onClick={e => { e.stopPropagation(); setDetailsDevice(device); setIsDetailsOpen(true); }}
-                                    className="p-1 rounded-md hover:bg-slate-700 text-violet-400 transition-colors"
-                                    title="Editar detalles">
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={e => { e.stopPropagation(); setRenewalDevice(device); setIsRenewalOpen(true); }}
-                                    className="p-1 rounded-md hover:bg-slate-700 text-sky-400 transition-colors"
-                                    title="Renovar">
-                                    <Calendar className="w-3.5 h-3.5" />
-                                  </button>
-                                  {device.status !== "deactivated" ? (
-                                    <button onClick={e => handleToggleDevice(e, device, true)}
-                                      className="p-1 rounded-md hover:bg-slate-700 text-rose-500 transition-colors" title="Desactivar">
-                                      <Pause className="w-3.5 h-3.5" />
-                                    </button>
-                                  ) : (
-                                    <button onClick={e => handleToggleDevice(e, device, false)}
-                                      className="p-1 rounded-md hover:bg-slate-700 text-emerald-500 transition-colors" title="Activar">
-                                      <Play className="w-3.5 h-3.5" />
-                                    </button>
+                                  {!isViewer && (
+                                    <>
+                                      <button
+                                        onClick={e => { e.stopPropagation(); setDetailsDevice(device); setIsDetailsOpen(true); }}
+                                        className="p-1 rounded-md hover:bg-slate-700 text-violet-400 transition-colors"
+                                        title="Editar detalles">
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={e => { e.stopPropagation(); setRenewalDevice(device); setIsRenewalOpen(true); }}
+                                        className="p-1 rounded-md hover:bg-slate-700 text-sky-400 transition-colors"
+                                        title="Renovar">
+                                        <Calendar className="w-3.5 h-3.5" />
+                                      </button>
+                                      {device.status !== "deactivated" ? (
+                                        <button onClick={e => handleToggleDevice(e, device, true)}
+                                          className="p-1 rounded-md hover:bg-slate-700 text-rose-500 transition-colors" title="Desactivar">
+                                          <Pause className="w-3.5 h-3.5" />
+                                        </button>
+                                      ) : (
+                                        <button onClick={e => handleToggleDevice(e, device, false)}
+                                          className="p-1 rounded-md hover:bg-slate-700 text-emerald-500 transition-colors" title="Activar">
+                                          <Play className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               </td>
@@ -820,6 +827,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
         onRenewDevice={device => { setRenewalDevice(device); setIsRenewalOpen(true); }}
         onToggleDevice={async (device, deactivate) => { await api.toggleDevice(device.id, deactivate); }}
         onRefresh={loadData}
+        session={session}
       />
 
       <RenewalModal

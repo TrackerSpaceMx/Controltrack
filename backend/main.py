@@ -8,6 +8,7 @@ from typing import Optional, List
 from dotenv import load_dotenv
 
 from database import get_db, init_db, migrate_db
+from auth import authenticate_user, get_current_session, require_superadmin, revoke_session
 from models import (
     DeviceResponse, DeviceListResponse, ToggleStatusRequest, BulkToggleRequest,
     LoginRequest, LoginResponse, SyncResponse, DashboardStats,
@@ -16,6 +17,11 @@ from models import (
     SellerStats, InvoicePreview,
 )
 import crud
+
+def _require_operator(session: dict):
+    """Lanza 403 si el usuario es solo 'viewer'. Permite admin y operator."""
+    if session.get("role") == "viewer" and not session.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Sin permisos para realizar esta accion")
 
 load_dotenv()
 
@@ -160,7 +166,9 @@ async def get_device(device_id: int, db=Depends(get_db)):
 
 
 @app.put("/api/devices/{device_id}/expiration")
-async def update_expiration(device_id: int, body: UpdateExpirationRequest, db=Depends(get_db)):
+async def update_expiration(device_id: int, body: UpdateExpirationRequest,
+                            db=Depends(get_db), session=Depends(get_current_session)):
+    _require_operator(session)
     ok = await crud.update_expiration(db, device_id, body.expiration_date)
     if not ok:
         raise HTTPException(status_code=404, detail="Dispositivo no encontrado")
@@ -168,8 +176,10 @@ async def update_expiration(device_id: int, body: UpdateExpirationRequest, db=De
 
 
 @app.put("/api/devices/{device_id}/details")
-async def update_device_details(device_id: int, body: UpdateDeviceDetailsRequest, db=Depends(get_db)):
+async def update_device_details(device_id: int, body: UpdateDeviceDetailsRequest,
+                                db=Depends(get_db), session=Depends(get_current_session)):
     """Actualiza tipo de contratación, vendedor, instalador, precio, RFC."""
+    _require_operator(session)
     ok = await crud.update_device_details(db, device_id, body.model_dump(exclude_none=False))
     if not ok:
         raise HTTPException(status_code=404, detail="Dispositivo no encontrado")
@@ -178,7 +188,9 @@ async def update_device_details(device_id: int, body: UpdateDeviceDetailsRequest
 
 
 @app.put("/api/devices/{device_id}/custom-fields")
-async def upsert_custom_field(device_id: int, body: CustomFieldUpsert, db=Depends(get_db)):
+async def upsert_custom_field(device_id: int, body: CustomFieldUpsert,
+                              db=Depends(get_db), session=Depends(get_current_session)):
+    _require_operator(session)
     await crud.upsert_custom_field(
         db, device_id, body.field_key, body.field_label, body.field_type, body.field_value or ""
     )
@@ -186,13 +198,17 @@ async def upsert_custom_field(device_id: int, body: CustomFieldUpsert, db=Depend
 
 
 @app.delete("/api/devices/{device_id}/custom-fields/{field_key}")
-async def delete_custom_field(device_id: int, field_key: str, db=Depends(get_db)):
+async def delete_custom_field(device_id: int, field_key: str,
+                              db=Depends(get_db), session=Depends(get_current_session)):
+    _require_operator(session)
     await crud.delete_custom_field(db, device_id, field_key)
     return {"success": True}
 
 
 @app.put("/api/devices/{device_id}/toggle")
-async def toggle_device(device_id: int, body: ToggleStatusRequest, db=Depends(get_db)):
+async def toggle_device(device_id: int, body: ToggleStatusRequest,
+                        db=Depends(get_db), session=Depends(get_current_session)):
+    _require_operator(session)
     device = await crud.get_device_by_id(db, device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Dispositivo no encontrado")
@@ -262,8 +278,10 @@ async def toggle_device(device_id: int, body: ToggleStatusRequest, db=Depends(ge
 # ─── Bulk toggle ──────────────────────────────────────────────────────────────
 
 @app.post("/api/devices/bulk-toggle")
-async def bulk_toggle_devices(body: BulkToggleRequest, db=Depends(get_db)):
+async def bulk_toggle_devices(body: BulkToggleRequest,
+                              db=Depends(get_db), session=Depends(get_current_session)):
     """Desactiva o activa varios dispositivos a la vez (solo actualiza status local)."""
+    _require_operator(session)
     new_status = "deactivated" if body.deactivate else "active"
     count = await crud.bulk_update_status(db, body.device_ids, new_status)
     return {"success": True, "updated": count, "message": f"{count} dispositivos actualizados"}
@@ -272,7 +290,9 @@ async def bulk_toggle_devices(body: BulkToggleRequest, db=Depends(get_db)):
 # ─── Client account toggle ────────────────────────────────────────────────────
 
 @app.put("/api/clients/{client_fulltrack_id}/toggle")
-async def toggle_client(client_fulltrack_id: str, body: ToggleStatusRequest, db=Depends(get_db)):
+async def toggle_client(client_fulltrack_id: str, body: ToggleStatusRequest,
+                        db=Depends(get_db), session=Depends(get_current_session)):
+    _require_operator(session)
     endpoint = "clients/deactive" if body.deactivate else "clients/active"
 
     async with httpx.AsyncClient(timeout=15) as client:
@@ -302,7 +322,9 @@ async def get_client_config(client_fulltrack_id: str, db=Depends(get_db)):
     return await crud.get_client_config(db, client_fulltrack_id)
 
 @app.put("/api/clients/{client_fulltrack_id}/config")
-async def update_client_config(client_fulltrack_id: str, body: ClientConfigUpdate, db=Depends(get_db)):
+async def update_client_config(client_fulltrack_id: str, body: ClientConfigUpdate,
+                               db=Depends(get_db), session=Depends(get_current_session)):
+    _require_operator(session)
     existing        = await crud.get_client_config(db, client_fulltrack_id)
     grace_days      = body.grace_days      if body.grace_days      is not None else existing["grace_days"]
     auto_deactivate = body.auto_deactivate if body.auto_deactivate is not None else existing["auto_deactivate"]
@@ -518,7 +540,6 @@ async def export_data(
 
 # ─── NEW: Auth multi-tenant ────────────────────────────────────────────────────
 
-from auth import authenticate_user, get_current_session, require_superadmin, revoke_session
 from models import LoginResponseV2, TenantCreate, TenantUpdate, TenantResponse, \
     UserCreate, UserUpdate, UserResponse, WhatsAppSendRequest
 import crud_tenants
@@ -643,6 +664,7 @@ async def delete_user(user_id: int, db=Depends(get_db), session=Depends(get_curr
 async def send_whatsapp(body: WhatsAppSendRequest, db=Depends(get_db),
                         session=Depends(get_current_session)):
     """Envía recordatorio manual de renovación a un número de WhatsApp."""
+    _require_operator(session)
     tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
     result = await wa.send_renewal_notification(
         db, body.device_ids, body.whatsapp_number, tenant_id

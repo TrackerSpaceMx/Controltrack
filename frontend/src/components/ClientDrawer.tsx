@@ -12,9 +12,11 @@ interface ClientDrawerProps {
   onRenewDevice: (device: DeviceRecord) => void;
   onToggleDevice: (device: DeviceRecord, deactivate: boolean) => Promise<void>;
   onRefresh: () => void;
+  session?: import('../api').SessionInfo;
 }
 
-export function ClientDrawer({ isOpen, onClose, clientId, onRenewDevice, onToggleDevice, onRefresh }: ClientDrawerProps) {
+export function ClientDrawer({ isOpen, onClose, clientId, onRenewDevice, onToggleDevice, onRefresh, session }: ClientDrawerProps) {
+  const isViewer = session?.role === "viewer" && !session?.is_superadmin;
   const [devices,        setDevices]        = useState<DeviceRecord[]>([]);
   const [loading,        setLoading]        = useState(false);
   const [togglingClient, setTogglingClient] = useState(false);
@@ -137,31 +139,39 @@ export function ClientDrawer({ isOpen, onClose, clientId, onRenewDevice, onToggl
                   {accountActive ? "Desactiva todos los dispositivos" : "Activa la cuenta del cliente"}
                 </p>
               </div>
-              <button
-                onClick={handleAccountToggle}
-                disabled={togglingClient || loading}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
-                  accountActive ? "bg-sky-500" : "bg-slate-700"
-                }`}
-              >
-                {togglingClient
-                  ? <Loader2 className="w-3 h-3 text-white animate-spin mx-auto" />
-                  : <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${accountActive ? "translate-x-6" : "translate-x-1"}`} />
-                }
-              </button>
+              {!isViewer ? (
+                <button
+                  onClick={handleAccountToggle}
+                  disabled={togglingClient || loading}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
+                    accountActive ? "bg-sky-500" : "bg-slate-700"
+                  }`}
+                >
+                  {togglingClient
+                    ? <Loader2 className="w-3 h-3 text-white animate-spin mx-auto" />
+                    : <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${accountActive ? "translate-x-6" : "translate-x-1"}`} />
+                  }
+                </button>
+              ) : (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${accountActive ? "text-sky-400 bg-sky-500/10" : "text-slate-400 bg-slate-700"}`}>
+                  {accountActive ? "Activa" : "Inactiva"}
+                </span>
+              )}
             </div>
 
-            {/* Config button */}
-            <button
-              onClick={() => setIsConfigOpen(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-sm text-slate-300 hover:text-white transition-colors mb-3"
-            >
-              <Settings className="w-4 h-4 text-slate-400" />
-              Configurar carencia y auto-desactivación
-            </button>
+            {/* Config button — solo admin/operator */}
+            {!isViewer && (
+              <button
+                onClick={() => setIsConfigOpen(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-sm text-slate-300 hover:text-white transition-colors mb-3"
+              >
+                <Settings className="w-4 h-4 text-slate-400" />
+                Configurar carencia y auto-desactivación
+              </button>
+            )}
 
-            {/* WhatsApp send */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-emerald-500/20">
+            {/* WhatsApp send — solo admin/operator */}
+            {!isViewer && <div className="p-4 bg-slate-950 rounded-xl border border-emerald-500/20">
               <p className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 mb-3">
                 <MessageCircle className="w-3.5 h-3.5" /> Enviar recordatorio por WhatsApp
               </p>
@@ -188,7 +198,7 @@ export function ClientDrawer({ isOpen, onClose, clientId, onRenewDevice, onToggl
               {waMsg && (
                 <p className={`mt-2 text-xs ${waMsg.startsWith("✅") ? "text-emerald-400" : "text-rose-400"}`}>{waMsg}</p>
               )}
-            </div>
+            </div>}
           </div>
 
           {/* Device list */}
@@ -225,30 +235,32 @@ export function ClientDrawer({ isOpen, onClose, clientId, onRenewDevice, onToggl
                           : "Sin fecha"}
                       </span></p>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => onRenewDevice(device)}
-                        className="flex-1 flex items-center justify-center px-3 py-2 bg-sky-500/10 text-sky-500 hover:bg-sky-500/20 rounded-lg text-xs font-medium transition-colors"
-                      >
-                        <Calendar className="w-3.5 h-3.5 mr-1.5" />
-                        Renovar
-                      </button>
-                      <button
-                        onClick={() => handleDeviceToggle(device)}
-                        disabled={togglingDevice === device.id}
-                        title={device.status === "deactivated" ? "Activar GPS" : "Desinstalar GPS de Fulltrack"}
-                        className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
-                          device.status === "deactivated"
-                            ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
-                            : "bg-rose-500/10 text-rose-500 hover:bg-rose-500/20"
-                        }`}
-                      >
-                        {togglingDevice === device.id
-                          ? <Loader2 className="w-4 h-4 animate-spin" />
-                          : <Power className="w-4 h-4" />
-                        }
-                      </button>
-                    </div>
+                    {!isViewer && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onRenewDevice(device)}
+                          className="flex-1 flex items-center justify-center px-3 py-2 bg-sky-500/10 text-sky-500 hover:bg-sky-500/20 rounded-lg text-xs font-medium transition-colors"
+                        >
+                          <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                          Renovar
+                        </button>
+                        <button
+                          onClick={() => handleDeviceToggle(device)}
+                          disabled={togglingDevice === device.id}
+                          title={device.status === "deactivated" ? "Activar GPS" : "Desinstalar GPS de Fulltrack"}
+                          className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                            device.status === "deactivated"
+                              ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+                              : "bg-rose-500/10 text-rose-500 hover:bg-rose-500/20"
+                          }`}
+                        >
+                          {togglingDevice === device.id
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <Power className="w-4 h-4" />
+                          }
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
