@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { SessionInfo } from "../api";
-import { Dashboard }    from "./Dashboard";
-import { UsersPage }    from "../components/UsersPage";
-import { WhatsAppPage } from "../components/WhatsAppPage";
+import { Dashboard }       from "./Dashboard";
+import { UsersPage }       from "../components/UsersPage";
+import { WhatsAppPage }    from "../components/WhatsAppPage";
+import { MonitoringPage }  from "./MonitoringPage";
 import {
   MapPin, LogOut, LayoutDashboard, Users,
   MessageCircle, ChevronLeft, ChevronRight, Activity,
@@ -97,12 +98,8 @@ export function TenantApp({ session, onLogout, hideSidebar = false }: Props) {
         )}
 
         {page === "monitoring" && (
-          <div className="flex-1 overflow-auto bg-slate-950 p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Activity className="w-5 h-5 text-sky-400" />
-              <h2 className="text-xl font-bold text-white">Monitoreo</h2>
-            </div>
-            <p className="text-xs text-slate-500">Próximamente — aquí irá el módulo de monitoreo en tiempo real.</p>
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <MonitoringPage />
           </div>
         )}
 
