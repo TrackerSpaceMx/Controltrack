@@ -1,8 +1,11 @@
 import React, { useState } from "react";
 import {
   ArrowLeft, Bell, Clock, MessageCircle, Mail, Save,
-  CheckCircle, AlertTriangle, Info,
+  CheckCircle, AlertTriangle, Info, Loader2,
 } from "lucide-react";
+import { getAuthToken } from "../api";
+
+const BASE = (import.meta as any).env?.VITE_API_URL ?? "http://0.0.0.0:8000";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,34 +114,6 @@ function TimePicker({
 
   return (
     <div className="space-y-3">
-      {/* Quick presets */}
-      <div>
-        <p className="text-[11px] text-slate-500 mb-1.5">Accesos rápidos</p>
-        <div className="flex flex-wrap gap-1.5">
-          {QUICK_OPTIONS.map(o => (
-            <button
-              key={o.value}
-              type="button"
-              onClick={() => handlePreset(o.value)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                value === o.value
-                  ? "bg-sky-500/20 border-sky-500/60 text-sky-300"
-                  : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-300"
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="flex items-center gap-2">
-        <div className="flex-1 h-px bg-slate-800" />
-        <span className="text-[10px] text-slate-600 uppercase tracking-widest">o ingresa un valor</span>
-        <div className="flex-1 h-px bg-slate-800" />
-      </div>
-
       {/* Custom input + unit selector */}
       <div className="flex gap-2">
         <input
@@ -261,14 +236,50 @@ function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: stri
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+function toMinutes(value: number, unit: string): number {
+  if (unit === "hours") return value * 60;
+  if (unit === "days")  return value * 1440;
+  return value;
+}
+
 interface Props {
   onBack: () => void;
 }
 
 export function AlertConfigPage({ onBack }: Props) {
-  const [config, setConfig] = useState<AlertConfig>(DEFAULTS);
-  const [saved,  setSaved]  = useState(false);
-  const [errors, setErrors] = useState<Partial<Record<keyof AlertConfig, string>>>({});
+  const [config,   setConfig]   = useState<AlertConfig>(DEFAULTS);
+  const [saved,    setSaved]    = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [loading,  setLoading]  = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [errors,   setErrors]   = useState<Partial<Record<keyof AlertConfig, string>>>({});
+
+  // Load existing config on mount
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/monitoring`, {
+          headers: { "Authorization": `Bearer ${getAuthToken()}` },
+        });
+        if (res.status === 204 || res.status === 404) return; // no config yet, keep defaults
+        if (!res.ok) return;
+        const { data } = await res.json();
+        const channel = data.notification_channel ?? "";
+        setConfig({
+          warning_minutes:      toMinutes(data.warning_time_value, data.warning_time_unit),
+          notification_minutes: toMinutes(data.alert_time_value,   data.alert_time_unit),
+          notify_whatsapp:      channel === "whatsapp" || channel === "both",
+          notify_email:         channel === "email"    || channel === "both",
+          whatsapp_number:      data.phone_number ?? "",
+          email_address:        data.email        ?? "",
+        });
+      } catch {
+        // silent fail, keep defaults
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   const set = <K extends keyof AlertConfig>(key: K, value: AlertConfig[K]) => {
     setConfig(c => ({ ...c, [key]: value }));
@@ -294,12 +305,64 @@ export function AlertConfigPage({ onBack }: Props) {
     return Object.keys(e).length === 0;
   };
 
-  const handleSave = () => {
+  // Converts total minutes to the most readable value+unit pair
+  const minutesToValueUnit = (totalMinutes: number): { value: number; unit: string } => {
+    if (totalMinutes >= 1440 && totalMinutes % 1440 === 0)
+      return { value: totalMinutes / 1440, unit: "days" };
+    if (totalMinutes >= 60 && totalMinutes % 60 === 0)
+      return { value: totalMinutes / 60, unit: "hours" };
+    return { value: totalMinutes, unit: "minutes" };
+  };
+
+  const handleSave = async () => {
     if (!validate()) return;
-    // TODO: persist to backend — e.g. api.saveAlertConfig(config)
-    console.log("Guardando config de alertas:", config);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+
+    const notification_channel =
+      config.notify_whatsapp && config.notify_email ? "both"
+      : config.notify_whatsapp ? "whatsapp"
+      : "email";
+
+    const { value: warning_time_value, unit: warning_time_unit }   = minutesToValueUnit(config.warning_minutes);
+    const { value: alert_time_value,   unit: alert_time_unit   }   = minutesToValueUnit(config.notification_minutes);
+
+    const payload = {
+      warning_time_value,
+      warning_time_unit,
+      alert_time_value,
+      alert_time_unit,
+      notification_channel,
+      phone_number: config.notify_whatsapp ? config.whatsapp_number.trim() : null,
+      email:        config.notify_email    ? config.email_address.trim()   : null,
+    };
+
+    setSaving(true);
+    setApiError(null);
+
+    try {
+      const res = await fetch(`${BASE}/api/monitoring`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getAuthToken()}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Error desconocido" }));
+        throw new Error(typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail));
+      }
+
+      setSaved(true);
+      setTimeout(() => {
+        setSaved(false);
+        onBack();
+      }, 1200);
+    } catch (e: any) {
+      setApiError(e.message ?? "No se pudo guardar la configuración");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const noChannelError = errors.notify_whatsapp && !errors.whatsapp_number;
@@ -324,6 +387,11 @@ export function AlertConfigPage({ onBack }: Props) {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
+          </div>
+        ) : (
         <div className="max-w-2xl mx-auto space-y-4">
 
           {/* Timeline visual */}
@@ -432,6 +500,7 @@ export function AlertConfigPage({ onBack }: Props) {
           </Section>
 
         </div>
+        )}
       </div>
 
       {/* Footer — save button */}
@@ -442,19 +511,31 @@ export function AlertConfigPage({ onBack }: Props) {
         >
           Cancelar
         </button>
-        <button
-          onClick={handleSave}
-          className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            saved
-              ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-400"
-              : "bg-sky-500 hover:bg-sky-400 text-white"
-          }`}
-        >
-          {saved
-            ? <><CheckCircle className="w-4 h-4" /> Guardado</>
-            : <><Save className="w-4 h-4" /> Guardar configuración</>
-          }
-        </button>
+
+        <div className="flex flex-col items-end gap-1.5">
+          {apiError && (
+            <p className="text-xs text-rose-400 flex items-center gap-1">
+              <AlertTriangle className="w-3.5 h-3.5" /> {apiError}
+            </p>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+              saved
+                ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-400"
+                : "bg-sky-500 hover:bg-sky-400 text-white"
+            }`}
+          >
+            {saving ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Guardando…</>
+            ) : saved ? (
+              <><CheckCircle className="w-4 h-4" /> Guardado</>
+            ) : (
+              <><Save className="w-4 h-4" /> Guardar configuración</>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
