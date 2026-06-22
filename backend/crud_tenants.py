@@ -136,3 +136,46 @@ async def get_notification_history(cur, tenant_id: Optional[int] = None,
             d["sent_at"] = str(d["sent_at"])
         result.append(d)
     return result
+
+
+async def create_alert_configuration(cur, tenant_id: int, body: dict) -> int:
+    await cur.execute("""
+        INSERT INTO alert_configuration
+            (tenant_id, warning_time_value, warning_time_unit,
+             alert_time_value, alert_time_unit, notification_channel,
+             phone_number, email)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            warning_time_value   = VALUES(warning_time_value),
+            warning_time_unit    = VALUES(warning_time_unit),
+            alert_time_value     = VALUES(alert_time_value),
+            alert_time_unit      = VALUES(alert_time_unit),
+            notification_channel = VALUES(notification_channel),
+            phone_number         = VALUES(phone_number),
+            email                = VALUES(email)
+    """, (tenant_id, body["warning_time_value"], body["warning_time_unit"], body["alert_time_value"],
+          body["alert_time_unit"], body["notification_channel"], body["phone_number"], body["email"]))
+
+    await cur.execute("SELECT id FROM alert_configuration WHERE tenant_id = %s", (tenant_id,))
+    row = await cur.fetchone()
+    return row["id"]
+
+
+async def get_alert_configuration(cur, tenant_id: int) -> dict | None:
+    await cur.execute("""
+        SELECT
+            id,
+            tenant_id,
+            warning_time_value,
+            warning_time_unit,
+            alert_time_value,
+            alert_time_unit,
+            notification_channel,
+            phone_number,
+            email
+        FROM alert_configuration
+        WHERE tenant_id = %s
+    """, (tenant_id,))
+
+    row = await cur.fetchone()
+    return row

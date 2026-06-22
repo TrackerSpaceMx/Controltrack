@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query, Response
+from fastapi import FastAPI, HTTPException, Depends, Query, Response,status
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import httpx
@@ -6,6 +6,7 @@ import os
 import io
 from typing import Optional, List
 from dotenv import load_dotenv
+import json
 
 from database import get_db, init_db, migrate_db
 from auth import authenticate_user, get_current_session, require_superadmin, revoke_session
@@ -14,7 +15,7 @@ from models import (
     LoginRequest, LoginResponse, SyncResponse, DashboardStats,
     UpdateExpirationRequest, UpdateDeviceDetailsRequest, CustomFieldUpsert,
     MonthlyExpiration, ClientConfig, ClientConfigUpdate,
-    SellerStats, InvoicePreview,
+    SellerStats, InvoicePreview, RegisterAlertConfiguration
 )
 import crud
 
@@ -684,3 +685,36 @@ async def run_whatsapp_scheduler(db=Depends(get_db), session=Depends(get_current
 async def get_whatsapp_history(db=Depends(get_db), session=Depends(get_current_session)):
     tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
     return await crud_tenants.get_notification_history(db, tenant_id)
+
+
+
+@app.post("/api/monitoring")
+async def register_alert_configuration(body: RegisterAlertConfiguration,db=Depends(get_db), session=Depends(get_current_session)):
+    tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
+
+    if body.notification_channel in ("whatsapp", "both") and not body.phone_number:
+        raise HTTPException(400, "phone_number es requerido para el canal seleccionado")
+    if body.notification_channel in ("email", "both") and not body.email:
+        raise HTTPException(400, "email es requerido para el canal seleccionado")
+    body = body.model_dump()
+
+    alert_config_response = await crud_tenants.create_alert_configuration(db,tenant_id,body)
+
+    if alert_config_response:
+        return {"success":True}
+    else:
+        raise HTTPException(status_code=500, detail="Error inserting alert configuration")
+
+    
+    
+@app.get("/api/monitoring")
+async def get_alert_configuration(db=Depends(get_db), session=Depends(get_current_session)):
+    tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
+    config_response = await crud_tenants.get_alert_configuration(db,tenant_id)
+    if config_response:
+        data = json.dumps(config_response)
+        return {"data": config_response}
+    
+    else:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        

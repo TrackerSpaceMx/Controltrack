@@ -228,3 +228,16 @@ class WhatsAppNotificationRecord(BaseModel):
     status: str
     days_before: Optional[int]
     sent_at: Optional[str]
+
+
+# ─── Monitoring ─────────────────────────────────────────────────────────────────
+
+class RegisterAlertConfiguration(BaseModel):
+    warning_time_value : int
+    warning_time_unit : str
+    alert_time_value : int
+    alert_time_unit : str
+    notification_channel : str
+    phone_number : Optional[str] = None
+    email : Optional[str] = None
+

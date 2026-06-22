@@ -90,6 +90,9 @@ async def init_db():
                     rfc                  VARCHAR(20) DEFAULT NULL,
                     ras_ins_id           VARCHAR(50) DEFAULT NULL,
                     whatsapp_number      VARCHAR(20) DEFAULT NULL,
+                    last_signal_at       DATETIME DEFAULT NULL,
+                    last_whatsapp_alert_at DATETIME DEFAULT NULL,
+                    last_email_alert_at  DATETIME DEFAULT NULL,
                     created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     UNIQUE KEY uq_imei_tenant (imei, tenant_id),
@@ -147,6 +150,25 @@ async def init_db():
                     INDEX idx_device (device_id),
                     INDEX idx_tenant (tenant_id),
                     INDEX idx_sent   (sent_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+
+
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS alert_configuration (
+                    id                    INT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id             INT NOT NULL,
+                    warning_time_value    INT NOT NULL DEFAULT 10,
+                    warning_time_unit     ENUM('minutes','hours','days') NOT NULL DEFAULT 'hours',
+                    alert_time_value      INT NOT NULL DEFAULT 2,
+                    alert_time_unit       ENUM('minutes','hours','days') NOT NULL DEFAULT 'days',
+                    notification_channel  ENUM('whatsapp','email','both') NOT NULL DEFAULT 'whatsapp',
+                    phone_number          VARCHAR(20) DEFAULT NULL,
+                    email                 VARCHAR(255) DEFAULT NULL,
+                    created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_tenant_alert (tenant_id),
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
 
