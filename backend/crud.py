@@ -3,7 +3,7 @@ from typing import Optional, List
 
 
 # ─── Contract type → delta days ───────────────────────────────────────────────
-
+ƒ
 CONTRACT_DAYS = {
     "monthly":    30,
     "quarterly":  90,
@@ -72,7 +72,7 @@ def _enrich_row(row: dict) -> dict:
 
 # ─── Sync ─────────────────────────────────────────────────────────────────────
 
-async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data, products_data, workshop_data=None) -> int:
+async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data, products_data, workshop_data=None, tenant_id=None) -> int:
     clients_map  = {c["ras_cli_id"]: c for c in clients_data}
     vehicles_map = {v["ras_vei_id"]: v for v in vehicles_data}
     products_map = {p["ras_prd_id"]: p.get("ras_prd_desc", "") for p in products_data}
@@ -138,9 +138,10 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
             INSERT INTO devices
                 (tracker_id, imei, client_fulltrack_id, vehicle_id,
                  client_name, device_name, plate, model, sim,
-                 registration_date, client_liberado, ras_ins_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 registration_date, client_liberado, ras_ins_id, tenant_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
+                tenant_id           = VALUES(tenant_id),
                 client_fulltrack_id = VALUES(client_fulltrack_id),
                 vehicle_id          = VALUES(vehicle_id),
                 client_name         = VALUES(client_name),
@@ -151,10 +152,11 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
                 client_liberado     = VALUES(client_liberado),
                 registration_date   = IF(registration_date IS NULL, VALUES(registration_date), registration_date),
                 ras_ins_id          = IF(VALUES(ras_ins_id) IS NOT NULL, VALUES(ras_ins_id), ras_ins_id)
+        
         """, (
             tracker_id, imei, cli_id, w_vei_id or None,
             client_name, vei_desc or None, vei_placa or None, model or None, sim or None,
-            reg_date, liberado, ins_id
+            reg_date, liberado, ins_id, tenant_id
         ))
 
         await cur.execute(
