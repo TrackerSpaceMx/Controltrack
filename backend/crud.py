@@ -181,9 +181,13 @@ async def get_devices(cur, search_client=None, search_imei=None, search_device=N
                       expire_from=None, expire_to=None,
                       seller_filter=None, installer_filter=None,
                       contract_type_filter=None,
-                      page=1, page_size=10):
+                      page=1, page_size=10, tenant_id=None):
     sql = "SELECT * FROM devices WHERE 1=1"
     params = []
+
+    if tenant_id is not None:
+        sql += " AND tenant_id = %s"
+        params.append(tenant_id)
 
     if search_client:
         sql += " AND client_name LIKE %s"
