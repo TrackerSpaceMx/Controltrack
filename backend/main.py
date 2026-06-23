@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query, Response,status
+from fastapi import FastAPI, HTTPException, Depends, Query, Response, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import httpx
@@ -23,6 +23,17 @@ def _require_operator(session: dict):
     """Lanza 403 si el usuario es solo 'viewer'. Permite admin y operator."""
     if session.get("role") == "viewer" and not session.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Sin permisos para realizar esta accion")
+
+def _effective_tenant(session: dict, impersonate_tenant: int | None = None) -> int | None:
+    """
+    Returns the tenant_id to use for filtering:
+    - Superadmin + X-Impersonate-Tenant header → filter by that tenant
+    - Superadmin without header → no filter (sees all)
+    - Normal user → always their own tenant_id
+    """
+    if session.get("is_superadmin"):
+        return impersonate_tenant  # None = ver todos, int = ver ese tenant
+    return session.get("tenant_id")
 
 load_dotenv()
 
@@ -169,15 +180,11 @@ async def get_devices(
     tenant_id:             Optional[int] = Query(None),  # superadmin puede filtrar por tenant
     page:                  int = Query(1, ge=1),
     page_size:             int = Query(10, ge=1, le=1000),
+    x_impersonate_tenant:  Optional[int] = Header(default=None),
     db=Depends(get_db),
     session=Depends(get_current_session)
 ):
-    if session.get("is_superadmin"):
-        # Superadmin: usa tenant_id del query param (None = ver todos los tenants)
-        effective_tenant_id = tenant_id
-    else:
-        # Usuario de tenant: siempre ve solo sus datos, ignora query param
-        effective_tenant_id = session.get("tenant_id")
+    effective_tenant_id = _effective_tenant(session, x_impersonate_tenant or tenant_id)
     return await crud.get_devices(
         db, search_client, search_imei, search_device, status_filter,
         expiring_days, expire_from, expire_to,
@@ -395,16 +402,31 @@ async def get_vehicle_detail(vehicle_id: str):
 # ─── Stats ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats", response_model=DashboardStats)
-async def get_stats(db=Depends(get_db)):
-    return await crud.get_stats(db)
+async def get_stats(
+    x_impersonate_tenant: Optional[int] = Header(default=None),
+    db=Depends(get_db),
+    session=Depends(get_current_session)
+):
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+    return await crud.get_stats(db, tenant_id=tenant_id)
 
 @app.get("/api/stats/monthly", response_model=List[MonthlyExpiration])
-async def get_monthly_stats(db=Depends(get_db)):
-    return await crud.get_monthly_expirations(db)
+async def get_monthly_stats(
+    x_impersonate_tenant: Optional[int] = Header(default=None),
+    db=Depends(get_db),
+    session=Depends(get_current_session)
+):
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+    return await crud.get_monthly_expirations(db, tenant_id=tenant_id)
 
 @app.get("/api/stats/by-seller", response_model=List[SellerStats])
-async def get_seller_stats(db=Depends(get_db)):
-    return await crud.get_seller_stats(db)
+async def get_seller_stats(
+    x_impersonate_tenant: Optional[int] = Header(default=None),
+    db=Depends(get_db),
+    session=Depends(get_current_session)
+):
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+    return await crud.get_seller_stats(db, tenant_id=tenant_id)
 
 
 # ─── Client devices & invoice ─────────────────────────────────────────────────
