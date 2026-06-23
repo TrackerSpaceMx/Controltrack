@@ -500,7 +500,7 @@ async def run_auto_deactivation_scheduler(cur) -> dict:
 
 # ─── Stats ────────────────────────────────────────────────────────────────────
 
-async def get_stats(cur):
+async def get_stats(cur, tenant_id=None):
     today = date.today()
     first_day = today.replace(day=1)
     if today.month == 12:
@@ -508,7 +508,12 @@ async def get_stats(cur):
     else:
         last_day = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
 
-    await cur.execute("""
+    tenant_filter = "AND tenant_id = %s" if tenant_id is not None else ""
+    params = [first_day.isoformat(), last_day.isoformat()]
+    if tenant_id is not None:
+        params.append(tenant_id)
+
+    await cur.execute(f"""
         SELECT
             COUNT(*) as total,
             SUM(CASE WHEN status='active'      THEN 1 ELSE 0 END) as active,
@@ -517,7 +522,8 @@ async def get_stats(cur):
             SUM(CASE WHEN status='deactivated' THEN 1 ELSE 0 END) as deactivated,
             SUM(CASE WHEN expiration_date >= %s AND expiration_date <= %s THEN 1 ELSE 0 END) as expiring_this_month
         FROM devices
-    """, (first_day.isoformat(), last_day.isoformat()))
+        WHERE 1=1 {tenant_filter}
+    """, params)
     row = await cur.fetchone()
     return {
         "total":               int(row["total"] or 0),
@@ -528,20 +534,26 @@ async def get_stats(cur):
         "expiring_this_month": int(row["expiring_this_month"] or 0),
     }
 
-async def get_monthly_expirations(cur):
+async def get_monthly_expirations(cur, tenant_id=None):
     today = date.today()
     end = today.replace(year=today.year + 1)
-    await cur.execute("""
+    tenant_filter = "AND tenant_id = %s" if tenant_id is not None else ""
+    params = [today.isoformat(), end.isoformat()]
+    if tenant_id is not None:
+        params.append(tenant_id)
+    await cur.execute(f"""
         SELECT DATE_FORMAT(expiration_date, '%%Y-%%m') as month, COUNT(*) as count
         FROM devices
-        WHERE expiration_date >= %s AND expiration_date <= %s
+        WHERE expiration_date >= %s AND expiration_date <= %s {tenant_filter}
         GROUP BY month ORDER BY month
-    """, (today.isoformat(), end.isoformat()))
+    """, params)
     rows = await cur.fetchall()
     return [{"month": r["month"], "count": int(r["count"])} for r in rows]
 
-async def get_seller_stats(cur) -> list:
-    await cur.execute("""
+async def get_seller_stats(cur, tenant_id=None) -> list:
+    tenant_filter = "WHERE tenant_id = %s" if tenant_id is not None else ""
+    params = [tenant_id] if tenant_id is not None else []
+    await cur.execute(f"""
         SELECT
             COALESCE(seller_name, 'Sin asignar') as seller_name,
             COUNT(*) as total,
@@ -551,9 +563,10 @@ async def get_seller_stats(cur) -> list:
             SUM(CASE WHEN status='deactivated' THEN 1 ELSE 0 END) as deactivated,
             SUM(COALESCE(monthly_price, 0)) as monthly_revenue
         FROM devices
+        {tenant_filter}
         GROUP BY COALESCE(seller_name, 'Sin asignar')
         ORDER BY total DESC
-    """)
+    """, params)
     rows = await cur.fetchall()
     return [
         {
