@@ -168,13 +168,15 @@ async def get_devices(
     contract_type_filter:  Optional[str] = Query(None),
     page:                  int = Query(1, ge=1),
     page_size:             int = Query(10, ge=1, le=1000),
-    db=Depends(get_db)
+    db=Depends(get_db),
+    session=Depends(get_current_session)
 ):
+    tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
     return await crud.get_devices(
         db, search_client, search_imei, search_device, status_filter,
         expiring_days, expire_from, expire_to,
         seller_filter, installer_filter, contract_type_filter,
-        page, page_size
+        page, page_size, tenant_id=tenant_id
     )
 
 
