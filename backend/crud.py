@@ -159,9 +159,15 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
             reg_date, liberado, ins_id, tenant_id
         ))
 
-        await cur.execute(
-            "SELECT id, expiration_date, status, client_liberado FROM devices WHERE imei=%s", (imei,)
-        )
+        if tenant_id is not None:
+            await cur.execute(
+                "SELECT id, expiration_date, status, client_liberado FROM devices WHERE imei=%s AND tenant_id=%s",
+                (imei, tenant_id)
+            )
+        else:
+            await cur.execute(
+                "SELECT id, expiration_date, status, client_liberado FROM devices WHERE imei=%s", (imei,)
+            )
         row = await cur.fetchone()
         if row:
             new_status = _compute_status(
