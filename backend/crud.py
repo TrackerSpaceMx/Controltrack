@@ -3,7 +3,7 @@ from typing import Optional, List
 
 
 # ─── Contract type → delta days ───────────────────────────────────────────────
-ƒ
+
 CONTRACT_DAYS = {
     "monthly":    30,
     "quarterly":  90,
