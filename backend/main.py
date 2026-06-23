@@ -38,32 +38,52 @@ def ft_url(path: str) -> str:
 
 
 async def do_sync():
-    async with httpx.AsyncClient(timeout=30) as client:
-        try:
-            r_clients  = await client.get(ft_url("clients/all"))
-            r_trackers = await client.get(ft_url("trackers/all"))
-            r_vehicles = await client.get(ft_url("vehicles/all"))
-            r_events   = await client.get(ft_url("events/all"))
-            r_products = await client.get(ft_url("trackers/products"))
-            r_workshop = await client.get(ft_url("workshop/list"))
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=502, detail=f"Error conectando con Fulltrack: {str(e)}")
-
     from database import get_pool
-    import aiomysql
+    import aiomysql as _aiomysql
     pool = await get_pool()
+    total_synced = 0
+
     async with pool.acquire() as conn:
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            synced = await crud.sync_data(
-                cur,
-                r_clients.json().get("data", []),
-                r_trackers.json().get("data", []),
-                r_vehicles.json().get("data", []),
-                r_events.json().get("data", []),
-                r_products.json().get("data", []),
-                r_workshop.json().get("data", []),
-            )
-    return synced
+        async with conn.cursor(_aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT id, ft_apikey, ft_secretkey FROM tenants WHERE active = 1")
+            tenants = await cur.fetchall()
+
+    for tenant in tenants:
+        tenant_id = tenant["id"]
+        apikey    = tenant["ft_apikey"]
+        secretkey = tenant["ft_secretkey"]
+
+        def ft_url_tenant(path):
+            return f"{FULLTRACK_BASE_URL}/{path}/apiKey/{apikey}/secretKey/{secretkey}"
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            try:
+                r_clients  = await client.get(ft_url_tenant("clients/all"))
+                r_trackers = await client.get(ft_url_tenant("trackers/all"))
+                r_vehicles = await client.get(ft_url_tenant("vehicles/all"))
+                r_events   = await client.get(ft_url_tenant("events/all"))
+                r_products = await client.get(ft_url_tenant("trackers/products"))
+                r_workshop = await client.get(ft_url_tenant("workshop/list"))
+            except httpx.RequestError as e:
+                print(f"Error sync tenant {tenant_id}: {e}")
+                continue
+
+        async with pool.acquire() as conn:
+            async with conn.cursor(_aiomysql.DictCursor) as cur:
+                synced = await crud.sync_data(
+                    cur,
+                    r_clients.json().get("data", []),
+                    r_trackers.json().get("data", []),
+                    r_vehicles.json().get("data", []),
+                    r_events.json().get("data", []),
+                    r_products.json().get("data", []),
+                    r_workshop.json().get("data", []),
+                    tenant_id=tenant_id,
+                )
+                await conn.commit()
+                total_synced += synced
+
+    return total_synced
 
 
 async def _whatsapp_scheduler_loop():
