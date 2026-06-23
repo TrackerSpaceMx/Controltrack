@@ -166,17 +166,23 @@ async def get_devices(
     seller_filter:         Optional[str] = Query(None),
     installer_filter:      Optional[str] = Query(None),
     contract_type_filter:  Optional[str] = Query(None),
+    tenant_id:             Optional[int] = Query(None),  # superadmin puede filtrar por tenant
     page:                  int = Query(1, ge=1),
     page_size:             int = Query(10, ge=1, le=1000),
     db=Depends(get_db),
     session=Depends(get_current_session)
 ):
-    tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
+    if session.get("is_superadmin"):
+        # Superadmin: usa tenant_id del query param (None = ver todos los tenants)
+        effective_tenant_id = tenant_id
+    else:
+        # Usuario de tenant: siempre ve solo sus datos, ignora query param
+        effective_tenant_id = session.get("tenant_id")
     return await crud.get_devices(
         db, search_client, search_imei, search_device, status_filter,
         expiring_days, expire_from, expire_to,
         seller_filter, installer_filter, contract_type_filter,
-        page, page_size, tenant_id=tenant_id
+        page, page_size, tenant_id=effective_tenant_id
     )
 
 
