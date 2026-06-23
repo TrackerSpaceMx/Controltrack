@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { adminApi, SessionInfo, Tenant } from "../api";
+import { adminApi, SessionInfo, Tenant, setImpersonateTenant } from "../api";
 import { TenantsPage }  from "../components/TenantsPage";
 import { UsersPage }    from "../components/UsersPage";
 import { WhatsAppPage } from "../components/WhatsAppPage";
@@ -46,14 +46,14 @@ export function SuperAdminApp({ session, onLogout }: Props) {
             Viendo como: <strong>{impersonating.name}</strong>
           </span>
           <button
-            onClick={() => setImpersonating(null)}
+            onClick={() => { setImpersonateTenant(null); setImpersonating(null); }}
             className="flex items-center gap-1.5 px-3 py-1 bg-white/20 hover:bg-white/30 rounded-md font-medium transition-colors"
           >
             ← Volver a mi panel
           </button>
         </div>
         <div className="flex-1 overflow-hidden">
-          <TenantApp session={fakeSession} onLogout={() => setImpersonating(null)} hideSidebar={true} />
+          <TenantApp session={fakeSession} onLogout={() => { setImpersonateTenant(null); setImpersonating(null); }} hideSidebar={true} />
         </div>
       </div>
     );
@@ -179,7 +179,7 @@ export function SuperAdminApp({ session, onLogout }: Props) {
                         : "bg-slate-700 text-slate-400 border-slate-600"
                     }`}>{t.active ? "Activo" : "Inactivo"}</span>
                     <button
-                      onClick={() => setImpersonating(t)}
+                      onClick={() => { setImpersonateTenant(t.id); setImpersonating(t); }}
                       disabled={!t.active}
                       title="Ver el dashboard de este cliente"
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 border border-violet-500/20 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
