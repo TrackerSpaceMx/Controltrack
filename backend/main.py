@@ -642,7 +642,9 @@ async def sync_tenant(tenant_id: int, db=Depends(get_db), session=Depends(requir
                 r_events.json().get("data", []),
                 r_products.json().get("data", []),
                 r_workshop.json().get("data", []),
+                tenant_id=tenant_id,  # ✅ Bug 1 corrigido: tenant_id agora é passado
             )
+        await conn.commit()
     return {"success": True, "synced": synced}
 
 
@@ -739,4 +741,3 @@ async def get_alert_configuration(db=Depends(get_db), session=Depends(get_curren
     
     else:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-        
