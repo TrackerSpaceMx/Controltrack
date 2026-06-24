@@ -27,7 +27,6 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
   const [installDate,    setInstallDate]    = useState("");
   const [monthlyPrice,   setMonthlyPrice]   = useState("");
   const [rfc,            setRfc]            = useState("");
-  const [autoCompute,    setAutoCompute]    = useState(false);
 
   // Custom fields
   const [customFields,   setCustomFields]   = useState<CustomField[]>([]);
@@ -43,7 +42,6 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
     setInstallDate( device.install_date    ?? "");
     setMonthlyPrice(device.monthly_price   != null ? String(device.monthly_price) : "");
     setRfc(         device.rfc             ?? "");
-    setAutoCompute(false);
     setCustomFields(device.custom_fields   ?? []);
     setError("");
     setSuccess(false);
@@ -61,7 +59,6 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
         install_date:            installDate    || undefined,
         monthly_price:           monthlyPrice   ? parseFloat(monthlyPrice) : undefined,
         rfc:                     rfc            || undefined,
-        auto_compute_expiration: autoCompute,
       });
       setSuccess(true);
       onSaved(res.device);
@@ -144,20 +141,7 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
               </select>
               <ChevronDown className="absolute right-2.5 top-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
             </div>
-            {contractType && (
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="autocompute"
-                  checked={autoCompute}
-                  onChange={e => setAutoCompute(e.target.checked)}
-                  className="rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500"
-                />
-                <label htmlFor="autocompute" className="text-xs text-slate-400 cursor-pointer">
-                  Calcular fecha de vencimiento automáticamente a partir de la fecha de instalación
-                </label>
-              </div>
-            )}
+
           </div>
 
           {/* Precio mensual */}

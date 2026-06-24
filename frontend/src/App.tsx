@@ -4,16 +4,30 @@ import { SuperAdminApp } from "./pages/SuperAdminApp";
 import { TenantApp }     from "./pages/TenantApp";
 import { setAuthToken, SessionInfo } from "./api";
 
+const SESSION_KEY = "ct_session";
+
 export function App() {
-  const [session, setSession] = useState<SessionInfo | null>(null);
+  const [session, setSession] = useState<SessionInfo | null>(() => {
+    try {
+      const stored = sessionStorage.getItem(SESSION_KEY);
+      if (stored) {
+        const s: SessionInfo = JSON.parse(stored);
+        setAuthToken(s.token);
+        return s;
+      }
+    } catch {}
+    return null;
+  });
 
   const handleLogin = (s: SessionInfo) => {
     setAuthToken(s.token);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
     setSession(s);
   };
 
   const handleLogout = () => {
     setAuthToken("");
+    sessionStorage.removeItem(SESSION_KEY);
     setSession(null);
   };
 

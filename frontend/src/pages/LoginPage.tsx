@@ -45,13 +45,15 @@ export function LoginPage({ onLogin }: Props) {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5" autoComplete="on">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1.5">Usuario</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-2.5 h-5 w-5 text-slate-500" />
                 <input type="text" required value={username}
                   onChange={e => setUsername(e.target.value)}
+                  autoComplete="username"
+                  name="username"
                   className="block w-full pl-10 pr-3 py-2.5 border border-slate-700 rounded-lg bg-slate-950/50 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent sm:text-sm transition-all"
                   placeholder="admin" />
               </div>
@@ -63,6 +65,8 @@ export function LoginPage({ onLogin }: Props) {
                 <Lock className="absolute left-3 top-2.5 h-5 w-5 text-slate-500" />
                 <input type="password" required value={password}
                   onChange={e => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  name="password"
                   className="block w-full pl-10 pr-3 py-2.5 border border-slate-700 rounded-lg bg-slate-950/50 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent sm:text-sm transition-all"
                   placeholder="••••••••" />
               </div>

@@ -94,6 +94,19 @@ function Pagination({ page, total, pageSize, onChange }: {
 function ExpandedDeviceRow({ device, colSpan }: { device: DeviceRecord; colSpan: number }) {
   const [vehicleDetail, setVehicleDetail] = useState<VehicleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [customFields,  setCustomFields]  = useState(device.custom_fields ?? []);
+
+  // Re-fetch custom fields when expanding (in case list endpoint didn't include them)
+  useEffect(() => {
+    const base = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:8000";
+    const token = (window as any).__ct_token ?? "";
+    fetch(`${base}/api/devices/${device.id}/custom-fields`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (Array.isArray(data)) setCustomFields(data); })
+      .catch(() => {});
+  }, [device.id]);
 
   useEffect(() => {
     if (!device.vehicle_id) return;
@@ -141,9 +154,9 @@ function ExpandedDeviceRow({ device, colSpan }: { device: DeviceRecord; colSpan:
           </div>
 
           {/* Campos personalizados */}
-          {(device.custom_fields ?? []).length > 0 && (
+          {customFields.length > 0 && (
             <div className="flex flex-wrap gap-3 pt-2 border-t border-slate-700/40">
-              {device.custom_fields!.map(cf => (
+              {customFields.map(cf => (
                 <InfoChip key={cf.field_key} icon={<span className="text-slate-400 text-[10px]">CF</span>} bg="bg-slate-700/50" label={cf.field_label} value={cf.field_value || "—"} />
               ))}
             </div>
@@ -224,6 +237,11 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
   // viewer solo puede ver, no modificar
   const isViewer = session?.role === "viewer" && !session?.is_superadmin;
 
+  // Store token globally for ExpandedDeviceRow
+  useEffect(() => {
+    if (session?.token) (window as any).__ct_token = session.token;
+  }, [session?.token]);
+
   const [activeTab, setActiveTab] = useState<"dashboard" | "charts">("dashboard");
 
   const [devices,    setDevices]    = useState<DeviceRecord[]>([]);
@@ -264,6 +282,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
   const [detailsDevice,    setDetailsDevice]    = useState<DeviceRecord | null>(null);
   const [isDetailsOpen,    setIsDetailsOpen]    = useState(false);
   const [isExportOpen,     setIsExportOpen]     = useState(false);
+  const [filtersOpen,    setFiltersOpen]    = useState(true);
 
   useEffect(() => {
     api.getDevices({ page: 1, page_size: 1000 }).then(res => {
@@ -463,11 +482,21 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
         ) : (
           <div className="flex flex-1 overflow-hidden">
 
-            {/* ── Filters panel (mejorado) ── */}
-            <div className="w-56 border-r border-slate-800 p-3 flex flex-col gap-3 bg-slate-900/30 overflow-y-auto shrink-0">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Search className="w-3 h-3" /> Filtros
-              </p>
+            {/* ── Filters panel (colapsable) ── */}
+            <div className={`border-r border-slate-800 bg-slate-900/30 shrink-0 flex flex-col transition-all duration-200 ${filtersOpen ? "w-56" : "w-10"}`}>
+              {/* Toggle header */}
+              <button
+                onClick={() => setFiltersOpen(v => !v)}
+                className="flex items-center gap-1.5 px-2.5 py-3 border-b border-slate-800 text-slate-500 hover:text-slate-300 transition-colors w-full"
+                title={filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
+              >
+                <Search className="w-3.5 h-3.5 shrink-0" />
+                {filtersOpen && <span className="text-xs font-semibold uppercase tracking-wider">Filtros</span>}
+                {filtersOpen
+                  ? <ChevronLeft className="w-3 h-3 ml-auto shrink-0" />
+                  : <ChevronRight className="w-3 h-3 shrink-0" />}
+              </button>
+              {filtersOpen && <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
 
               <ClientSearchFilter value={searchClient} onChange={setSearchClient} allClients={allClients} />
 
@@ -603,6 +632,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                   Limpiar filtros
                 </button>
               )}
+              </div>}
             </div>
 
             {/* ── Table ── */}

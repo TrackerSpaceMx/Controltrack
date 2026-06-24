@@ -34,23 +34,11 @@ export function WhatsAppPage({ session }: Props) {
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           <MessageCircle className="w-5 h-5 text-emerald-400" /> WhatsApp
         </h2>
-        <p className="text-xs text-slate-500 mt-0.5">Notificaciones automáticas de renovación vía Twilio</p>
+        <p className="text-xs text-slate-500 mt-0.5">Notificaciones automáticas de renovación vía WhatsApp</p>
       </div>
 
       {/* Info cards */}
-      <div className={`mb-6 grid grid-cols-1 gap-4 ${session.is_superadmin ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-
-        {session.is_superadmin && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Configuración</p>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Variables requeridas en <code className="bg-slate-800 px-1 py-0.5 rounded text-slate-300">.env</code>:<br/>
-              <code className="bg-slate-800 px-1 py-0.5 rounded text-sky-400 text-[10px]">TWILIO_ACCOUNT_SID</code><br/>
-              <code className="bg-slate-800 px-1 py-0.5 rounded text-sky-400 text-[10px]">TWILIO_AUTH_TOKEN</code><br/>
-              <code className="bg-slate-800 px-1 py-0.5 rounded text-sky-400 text-[10px]">TWILIO_WHATSAPP_FROM</code>
-            </p>
-          </div>
-        )}
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Envío automático</p>
@@ -108,7 +96,10 @@ export function WhatsAppPage({ session }: Props) {
                       {n.sent_at ? new Date(n.sent_at).toLocaleString("es-MX") : "—"}
                     </td>
                     <td className="px-4 py-3 text-white font-medium">{n.client_name || "—"}</td>
-                    <td className="px-4 py-3 text-slate-300">{n.device_name || n.plate || `ID ${n.device_id}`}</td>
+                    <td className="px-4 py-3 text-slate-300">
+                      <span className="font-mono text-xs font-semibold">{n.plate || "—"}</span>
+                      {n.device_name && <span className="block text-[10px] text-slate-500 truncate max-w-[120px]">{n.device_name}</span>}
+                    </td>
                     <td className="px-4 py-3 text-slate-400 font-mono text-xs">
                       <span className="flex items-center gap-1">
                         <Phone className="w-3 h-3 shrink-0" />
