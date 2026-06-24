@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query, Response,status
+from fastapi import FastAPI, HTTPException, Depends, Query, Response, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import httpx
@@ -23,6 +23,13 @@ def _require_operator(session: dict):
     """Lanza 403 si el usuario es solo 'viewer'. Permite admin y operator."""
     if session.get("role") == "viewer" and not session.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Sin permisos para realizar esta accion")
+
+def _effective_tenant(session: dict, impersonate: int | None = None) -> int | None:
+    """Superadmin con header X-Impersonate-Tenant → filtra ese tenant. Sin header → ve todo.
+       Usuario normal → siempre su propio tenant_id."""
+    if session.get("is_superadmin"):
+        return impersonate
+    return session.get("tenant_id")
 
 load_dotenv()
 
@@ -411,16 +418,31 @@ async def get_vehicle_detail(vehicle_id: str):
 # ─── Stats ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats", response_model=DashboardStats)
-async def get_stats(db=Depends(get_db)):
-    return await crud.get_stats(db)
+async def get_stats(
+    x_impersonate_tenant: Optional[int] = Header(default=None),
+    db=Depends(get_db),
+    session=Depends(get_current_session)
+):
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+    return await crud.get_stats(db, tenant_id=tenant_id)
 
 @app.get("/api/stats/monthly", response_model=List[MonthlyExpiration])
-async def get_monthly_stats(db=Depends(get_db)):
-    return await crud.get_monthly_expirations(db)
+async def get_monthly_stats(
+    x_impersonate_tenant: Optional[int] = Header(default=None),
+    db=Depends(get_db),
+    session=Depends(get_current_session)
+):
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+    return await crud.get_monthly_expirations(db, tenant_id=tenant_id)
 
 @app.get("/api/stats/by-seller", response_model=List[SellerStats])
-async def get_seller_stats(db=Depends(get_db)):
-    return await crud.get_seller_stats(db)
+async def get_seller_stats(
+    x_impersonate_tenant: Optional[int] = Header(default=None),
+    db=Depends(get_db),
+    session=Depends(get_current_session)
+):
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+    return await crud.get_seller_stats(db, tenant_id=tenant_id)
 
 
 # ─── Client devices & invoice ─────────────────────────────────────────────────
