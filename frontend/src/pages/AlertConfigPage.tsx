@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   ArrowLeft, Bell, Clock, MessageCircle, Mail, Save,
-  CheckCircle, AlertTriangle, Info, Loader2,
+  CheckCircle, AlertTriangle, Info, Loader2, Radio, Search, X,
 } from "lucide-react";
-import { getAuthToken } from "../api";
+import { getAuthToken, api } from "../api";
 
 const BASE = (import.meta as any).env?.VITE_API_URL ?? "http://0.0.0.0:8000";
 
@@ -247,39 +247,88 @@ interface Props {
 }
 
 export function AlertConfigPage({ onBack }: Props) {
-  const [config,   setConfig]   = useState<AlertConfig>(DEFAULTS);
-  const [saved,    setSaved]    = useState(false);
-  const [saving,   setSaving]   = useState(false);
-  const [loading,  setLoading]  = useState(true);
-  const [apiError, setApiError] = useState<string | null>(null);
-  const [errors,   setErrors]   = useState<Partial<Record<keyof AlertConfig, string>>>({});
+  const [config,       setConfig]       = useState<AlertConfig>(DEFAULTS);
+  const [saved,        setSaved]        = useState(false);
+  const [saving,       setSaving]       = useState(false);
+  const [loading,      setLoading]      = useState(true);
+  const [apiError,     setApiError]     = useState<string | null>(null);
+  const [errors,       setErrors]       = useState<Partial<Record<keyof AlertConfig, string>>>({});
+  const [allDevices,   setAllDevices]   = useState<{ id: number; device_name: string | null; plate: string | null; client_name: string }[]>([]);
+  const [monitoredIds, setMonitoredIds] = useState<Set<number>>(new Set());
+  const [deviceSearch, setDeviceSearch] = useState("");
 
-  // Load existing config on mount
   React.useEffect(() => {
     (async () => {
       try {
+        // Config de alertas
         const res = await fetch(`${BASE}/api/monitoring`, {
           headers: { "Authorization": `Bearer ${getAuthToken()}` },
         });
-        if (res.status === 204 || res.status === 404) return; // no config yet, keep defaults
-        if (!res.ok) return;
-        const { data } = await res.json();
-        const channel = data.notification_channel ?? "";
-        setConfig({
-          warning_minutes:      toMinutes(data.warning_time_value, data.warning_time_unit),
-          notification_minutes: toMinutes(data.alert_time_value,   data.alert_time_unit),
-          notify_whatsapp:      channel === "whatsapp" || channel === "both",
-          notify_email:         channel === "email"    || channel === "both",
-          whatsapp_number:      data.phone_number ?? "",
-          email_address:        data.email        ?? "",
+        if (res.ok) {
+          const { data } = await res.json();
+          const channel = data.notification_channel ?? "";
+          setConfig({
+            warning_minutes:      toMinutes(data.warning_time_value, data.warning_time_unit),
+            notification_minutes: toMinutes(data.alert_time_value,   data.alert_time_unit),
+            notify_whatsapp:      channel === "whatsapp" || channel === "both",
+            notify_email:         channel === "email"    || channel === "both",
+            whatsapp_number:      data.phone_number ?? "",
+            email_address:        data.email        ?? "",
+          });
+        }
+
+        // Todos los dispositivos del tenant
+        const devRes = await api.getDevices({ page: 1, page_size: 500 });
+        setAllDevices(devRes.devices.map(d => ({
+          id: d.id,
+          device_name: d.device_name ?? null,
+          plate: d.plate ?? null,
+          client_name: d.client_name,
+        })));
+
+        // Cuáles ya están siendo monitoreados
+        const monRes = await fetch(`${BASE}/api/monitoring/devices`, {
+          headers: { "Authorization": `Bearer ${getAuthToken()}` },
         });
+        if (monRes.ok) {
+          const { device_ids } = await monRes.json();
+          setMonitoredIds(new Set(device_ids as number[]));
+        }
       } catch {
-        // silent fail, keep defaults
+        // silent fail
       } finally {
         setLoading(false);
       }
     })();
   }, []);
+
+  const toggleDevice = (id: number) => {
+    setMonitoredIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const toggleAll = () => {
+    if (monitoredIds.size === allDevices.length) {
+      setMonitoredIds(new Set());
+    } else {
+      setMonitoredIds(new Set(allDevices.map(d => d.id)));
+    }
+    setSaved(false);
+  };
+
+  const filteredDevices = useMemo(() => {
+    if (!deviceSearch.trim()) return allDevices;
+    const q = deviceSearch.toLowerCase();
+    return allDevices.filter(d =>
+      (d.device_name ?? "").toLowerCase().includes(q) ||
+      (d.plate ?? "").toLowerCase().includes(q) ||
+      d.client_name.toLowerCase().includes(q)
+    );
+  }, [allDevices, deviceSearch]);
 
   const set = <K extends keyof AlertConfig>(key: K, value: AlertConfig[K]) => {
     setConfig(c => ({ ...c, [key]: value }));
@@ -339,6 +388,7 @@ export function AlertConfigPage({ onBack }: Props) {
     setApiError(null);
 
     try {
+      // Guardar config de alertas
       const res = await fetch(`${BASE}/api/monitoring`, {
         method: "POST",
         headers: {
@@ -350,6 +400,20 @@ export function AlertConfigPage({ onBack }: Props) {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Error desconocido" }));
+        throw new Error(typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail));
+      }
+
+      // Guardar unidades monitoreadas
+      const monRes = await fetch(`${BASE}/api/monitoring/devices`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getAuthToken()}`,
+        },
+        body: JSON.stringify({ device_ids: Array.from(monitoredIds) }),
+      });
+      if (!monRes.ok) {
+        const err = await monRes.json().catch(() => ({ detail: "Error al guardar unidades" }));
         throw new Error(typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail));
       }
 
@@ -496,6 +560,78 @@ export function AlertConfigPage({ onBack }: Props) {
                   )}
                 </div>
               )}
+            </div>
+          </Section>
+
+          {/* Unidades a monitorear */}
+          <Section title="Unidades monitoreadas" icon={<Radio className="w-4 h-4" />}>
+            <p className="text-[11px] text-slate-500 mb-3">
+              Solo las unidades seleccionadas recibirán monitoreo de señal y generarán alertas.
+            </p>
+
+            <div className="flex items-center gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                <input
+                  value={deviceSearch}
+                  onChange={e => setDeviceSearch(e.target.value)}
+                  placeholder="Buscar por unidad, placa o cliente…"
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
+                />
+                {deviceSearch && (
+                  <button onClick={() => setDeviceSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <X className="w-3 h-3 text-slate-500 hover:text-white" />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={toggleAll}
+                className="shrink-0 px-3 py-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg hover:border-slate-500 hover:text-slate-200 transition-colors"
+              >
+                {monitoredIds.size === allDevices.length ? "Quitar todas" : "Seleccionar todas"}
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-500 mb-2">
+              <span className="text-sky-400 font-semibold">{monitoredIds.size}</span> de {allDevices.length} unidades seleccionadas
+            </p>
+
+            <div className="border border-slate-700 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+              {filteredDevices.length === 0 ? (
+                <div className="flex items-center justify-center h-16 text-xs text-slate-500">
+                  Sin resultados
+                </div>
+              ) : filteredDevices.map(d => {
+                const active = monitoredIds.has(d.id);
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => toggleDevice(d.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 border-b border-slate-800 last:border-0 text-left transition-colors ${
+                      active ? "bg-sky-500/10 hover:bg-sky-500/15" : "hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <div className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors ${
+                      active ? "bg-sky-500 border-sky-500" : "border-slate-600"
+                    }`}>
+                      {active && (
+                        <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 10" fill="none">
+                          <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 truncate">
+                        {d.device_name ?? `Unidad #${d.id}`}
+                        {d.plate && <span className="text-slate-500 font-normal ml-1">· {d.plate}</span>}
+                      </p>
+                      <p className="text-[10px] text-slate-500 truncate">{d.client_name}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </Section>
 

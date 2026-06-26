@@ -90,9 +90,6 @@ async def init_db():
                     rfc                  VARCHAR(20) DEFAULT NULL,
                     ras_ins_id           VARCHAR(50) DEFAULT NULL,
                     whatsapp_number      VARCHAR(20) DEFAULT NULL,
-                    last_signal_at       DATETIME DEFAULT NULL,
-                    last_whatsapp_alert_at DATETIME DEFAULT NULL,
-                    last_email_alert_at  DATETIME DEFAULT NULL,
                     created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     UNIQUE KEY uq_imei_tenant (imei, tenant_id),
@@ -170,6 +167,22 @@ async def init_db():
                     UNIQUE KEY uq_tenant_alert (tenant_id),
                     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+
+
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS monitored_devices (
+                        id                     INT AUTO_INCREMENT PRIMARY KEY,
+                        tenant_id              INT NOT NULL,
+                        device_id              INT NOT NULL,
+                        active                 TINYINT(1) DEFAULT 1,
+                        last_signal_at         DATETIME DEFAULT NULL,
+                        last_whatsapp_alert_at DATETIME DEFAULT NULL,
+                        last_email_alert_at    DATETIME DEFAULT NULL,
+                        created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_tenant_device (tenant_id, device_id),
+                        FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
 
             await conn.commit()

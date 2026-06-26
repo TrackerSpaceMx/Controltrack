@@ -179,3 +179,17 @@ async def get_alert_configuration(cur, tenant_id: int) -> dict | None:
 
     row = await cur.fetchone()
     return row
+
+
+async def get_keys(cur, tenant_id: int) -> dict | None:
+    await cur.execute("""
+        SELECT
+            id,
+            ft_apikey,
+            ft_secretkey
+        FROM tenants
+        WHERE id = %s
+    """, (tenant_id,))
+
+    row = await cur.fetchone()
+    return row

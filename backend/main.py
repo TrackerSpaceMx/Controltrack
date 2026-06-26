@@ -785,3 +785,30 @@ async def get_alert_configuration(db=Depends(get_db), session=Depends(get_curren
     
     else:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/api/monitored_devices")
+async def sync_tenant(db=Depends(get_db), session=Depends(get_current_session)):
+    tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
+
+    if not tenant_id:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    ft_base = os.getenv("FULLTRACK_BASE_URL", "http://ws.fulltrack2.com")
+    keys = await crud_tenants.get_keys(db,tenant_id)
+    if keys is None:
+        raise HTTPException(status_code=500, detail="Error getting the devices")
+    
+    api_key= keys.get("ft_apikey")
+    secret_key = keys.get("ft_secretkey")
+    print("KETYTTSS: ",keys)
+    # async with httpx.AsyncClient(timeout=30) as client:
+    #     try:
+
+    #         r_events   = await client.get(t_url("events/all"))
+
+        
+    #     except httpx.RequestError as e:
+    #         raise HTTPException(status_code=502, detail=str(e))
+
+    return {"success": True}
