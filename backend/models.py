@@ -240,4 +240,5 @@ class RegisterAlertConfiguration(BaseModel):
     notification_channel : str
     phone_number : Optional[str] = None
     email : Optional[str] = None
+    devices : List[dict]
 

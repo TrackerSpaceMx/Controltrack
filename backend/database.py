@@ -172,17 +172,18 @@ async def init_db():
 
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS monitored_devices (
-                        id                     INT AUTO_INCREMENT PRIMARY KEY,
-                        tenant_id              INT NOT NULL,
-                        device_id              INT NOT NULL,
-                        active                 TINYINT(1) DEFAULT 1,
-                        last_signal_at         DATETIME DEFAULT NULL,
-                        last_whatsapp_alert_at DATETIME DEFAULT NULL,
-                        last_email_alert_at    DATETIME DEFAULT NULL,
-                        created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE KEY uq_tenant_device (tenant_id, device_id),
-                        FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    id                     INT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id              INT NOT NULL,
+                    imei                   VARCHAR(50) NOT NULL,
+                    plate                  VARCHAR(100) DEFAULT NULL,
+                    vehicle_name           VARCHAR(255) DEFAULT NULL,
+                    active                 TINYINT(1) DEFAULT 1,
+                    last_signal_at         DATETIME DEFAULT NULL,
+                    last_whatsapp_alert_at DATETIME DEFAULT NULL,
+                    last_email_alert_at    DATETIME DEFAULT NULL,
+                    created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_tenant_imei (tenant_id, imei)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
 
             await conn.commit()
@@ -211,7 +212,7 @@ async def migrate_db():
                 except Exception:
                     pass
 
-            # Migración: whatsapp_number en client_config
+
             try:
                 await cur.execute(
                     "ALTER TABLE client_config ADD COLUMN whatsapp_number VARCHAR(20) DEFAULT NULL"

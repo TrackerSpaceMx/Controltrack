@@ -253,8 +253,8 @@ export function AlertConfigPage({ onBack }: Props) {
   const [loading,      setLoading]      = useState(true);
   const [apiError,     setApiError]     = useState<string | null>(null);
   const [errors,       setErrors]       = useState<Partial<Record<keyof AlertConfig, string>>>({});
-  const [allDevices,   setAllDevices]   = useState<{ id: number; device_name: string | null; plate: string | null; client_name: string }[]>([]);
-  const [monitoredIds, setMonitoredIds] = useState<Set<number>>(new Set());
+  const [allDevices,   setAllDevices]   = useState<{ imei: string; vehicle_name: string; plate: string }[]>([]);
+  const [monitoredImeIs, setMonitoredImeIs] = useState<Set<string>>(new Set());
   const [deviceSearch, setDeviceSearch] = useState("");
 
   React.useEffect(() => {
@@ -277,22 +277,24 @@ export function AlertConfigPage({ onBack }: Props) {
           });
         }
 
-        // Todos los dispositivos del tenant
-        const devRes = await api.getDevices({ page: 1, page_size: 500 });
-        setAllDevices(devRes.devices.map(d => ({
-          id: d.id,
-          device_name: d.device_name ?? null,
-          plate: d.plate ?? null,
-          client_name: d.client_name,
-        })));
-
-        // Cuáles ya están siendo monitoreados
-        const monRes = await fetch(`${BASE}/api/monitoring/devices`, {
+        // Dispositivos con flag in_database
+        const monRes = await fetch(`${BASE}/api/monitored_devices`, {
           headers: { "Authorization": `Bearer ${getAuthToken()}` },
         });
-        if (monRes.ok) {
-          const { device_ids } = await monRes.json();
-          setMonitoredIds(new Set(device_ids as number[]));
+        console.log("[monitored_devices] status:", monRes.status);
+        if (monRes.ok && monRes.status !== 204) {
+          const json = await monRes.json();
+          console.log("[monitored_devices] data:", json);
+          const data = json.data;
+          setAllDevices(data);
+          const allFalse = data.every((d: any) => !d.in_database);
+          if (allFalse) {
+            // Primera vez — todos seleccionados por defecto
+            setMonitoredImeIs(new Set(data.map((d: any) => d.imei)));
+          } else {
+            // Ya tiene configuración — solo los marcados
+            setMonitoredImeIs(new Set(data.filter((d: any) => d.in_database).map((d: any) => d.imei)));
+          }
         }
       } catch {
         // silent fail
@@ -302,20 +304,20 @@ export function AlertConfigPage({ onBack }: Props) {
     })();
   }, []);
 
-  const toggleDevice = (id: number) => {
-    setMonitoredIds(prev => {
+  const toggleDevice = (imei: string) => {
+    setMonitoredImeIs(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      next.has(imei) ? next.delete(imei) : next.add(imei);
       return next;
     });
     setSaved(false);
   };
 
   const toggleAll = () => {
-    if (monitoredIds.size === allDevices.length) {
-      setMonitoredIds(new Set());
+    if (monitoredImeIs.size === allDevices.length) {
+      setMonitoredImeIs(new Set());
     } else {
-      setMonitoredIds(new Set(allDevices.map(d => d.id)));
+      setMonitoredImeIs(new Set(allDevices.map(d => d.imei)));
     }
     setSaved(false);
   };
@@ -324,9 +326,9 @@ export function AlertConfigPage({ onBack }: Props) {
     if (!deviceSearch.trim()) return allDevices;
     const q = deviceSearch.toLowerCase();
     return allDevices.filter(d =>
-      (d.device_name ?? "").toLowerCase().includes(q) ||
-      (d.plate ?? "").toLowerCase().includes(q) ||
-      d.client_name.toLowerCase().includes(q)
+      d.vehicle_name.toLowerCase().includes(q) ||
+      d.plate.toLowerCase().includes(q) ||
+      d.imei.toLowerCase().includes(q)
     );
   }, [allDevices, deviceSearch]);
 
@@ -388,32 +390,23 @@ export function AlertConfigPage({ onBack }: Props) {
     setApiError(null);
 
     try {
-      // Guardar config de alertas
-      const res = await fetch(`${BASE}/api/monitoring`, {
+      // Guardar config + unidades en un solo request
+      const res = await fetch(`${BASE}/api/alert_configuration`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${getAuthToken()}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          devices: allDevices
+            .filter(d => monitoredImeIs.has(d.imei))
+            .map(d => ({ imei: d.imei, plate: d.plate, vehicle_name: d.vehicle_name })),
+        }),
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Error desconocido" }));
-        throw new Error(typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail));
-      }
-
-      // Guardar unidades monitoreadas
-      const monRes = await fetch(`${BASE}/api/monitoring/devices`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getAuthToken()}`,
-        },
-        body: JSON.stringify({ device_ids: Array.from(monitoredIds) }),
-      });
-      if (!monRes.ok) {
-        const err = await monRes.json().catch(() => ({ detail: "Error al guardar unidades" }));
         throw new Error(typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail));
       }
 
@@ -456,7 +449,7 @@ export function AlertConfigPage({ onBack }: Props) {
             <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
           </div>
         ) : (
-        <div className="max-w-2xl mx-auto space-y-4">
+        <div className="max-w-4xl mx-auto space-y-4">
 
           {/* Timeline visual */}
           <div className="flex items-center gap-2 px-4 py-3 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-400">
@@ -569,13 +562,14 @@ export function AlertConfigPage({ onBack }: Props) {
               Solo las unidades seleccionadas recibirán monitoreo de señal y generarán alertas.
             </p>
 
+            {/* Search + counters */}
             <div className="flex items-center gap-2 mb-3">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
                 <input
                   value={deviceSearch}
                   onChange={e => setDeviceSearch(e.target.value)}
-                  placeholder="Buscar por unidad, placa o cliente…"
+                  placeholder="Buscar por unidad, placa o IMEI…"
                   className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
                 />
                 {deviceSearch && (
@@ -584,54 +578,93 @@ export function AlertConfigPage({ onBack }: Props) {
                   </button>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={toggleAll}
-                className="shrink-0 px-3 py-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg hover:border-slate-500 hover:text-slate-200 transition-colors"
-              >
-                {monitoredIds.size === allDevices.length ? "Quitar todas" : "Seleccionar todas"}
-              </button>
             </div>
 
-            <p className="text-[11px] text-slate-500 mb-2">
-              <span className="text-sky-400 font-semibold">{monitoredIds.size}</span> de {allDevices.length} unidades seleccionadas
-            </p>
+            {/* Two-column transfer list */}
+            <div className="grid grid-cols-2 gap-3">
 
-            <div className="border border-slate-700 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
-              {filteredDevices.length === 0 ? (
-                <div className="flex items-center justify-center h-16 text-xs text-slate-500">
-                  Sin resultados
-                </div>
-              ) : filteredDevices.map(d => {
-                const active = monitoredIds.has(d.id);
-                return (
+              {/* Left — disponibles */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[11px] font-medium text-slate-400">
+                    Disponibles <span className="text-slate-600">({filteredDevices.filter(d => !monitoredImeIs.has(d.imei)).length})</span>
+                  </p>
                   <button
-                    key={d.id}
                     type="button"
-                    onClick={() => toggleDevice(d.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 border-b border-slate-800 last:border-0 text-left transition-colors ${
-                      active ? "bg-sky-500/10 hover:bg-sky-500/15" : "hover:bg-slate-800/60"
-                    }`}
+                    onClick={() => setMonitoredImeIs(new Set(allDevices.map(d => d.imei)))}
+                    className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors"
                   >
-                    <div className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors ${
-                      active ? "bg-sky-500 border-sky-500" : "border-slate-600"
-                    }`}>
-                      {active && (
-                        <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 10" fill="none">
-                          <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-slate-200 truncate">
-                        {d.device_name ?? `Unidad #${d.id}`}
-                        {d.plate && <span className="text-slate-500 font-normal ml-1">· {d.plate}</span>}
-                      </p>
-                      <p className="text-[10px] text-slate-500 truncate">{d.client_name}</p>
-                    </div>
+                    Agregar todas
                   </button>
-                );
-              })}
+                </div>
+                <div className="border border-slate-700 rounded-xl overflow-hidden h-56 overflow-y-auto">
+                  {filteredDevices.filter(d => !monitoredImeIs.has(d.imei)).length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-xs text-slate-600">
+                      Todas agregadas
+                    </div>
+                  ) : filteredDevices.filter(d => !monitoredImeIs.has(d.imei)).map(d => (
+                    <button
+                      key={d.imei}
+                      type="button"
+                      onClick={() => toggleDevice(d.imei)}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-slate-800 last:border-0 text-left hover:bg-slate-800/60 transition-colors group"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-300 truncate group-hover:text-white transition-colors">
+                          {d.vehicle_name}
+                          {d.plate && <span className="text-slate-500 font-normal ml-1">· {d.plate}</span>}
+                        </p>
+                        <p className="text-[10px] text-slate-600 truncate">{d.imei}</p>
+                      </div>
+                      <svg className="w-3 h-3 text-slate-600 group-hover:text-sky-400 shrink-0 transition-colors" viewBox="0 0 10 10" fill="none">
+                        <path d="M3 5h4M5 3l2 2-2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right — monitoreadas */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[11px] font-medium text-slate-400">
+                    Monitoreadas <span className="text-sky-400 font-semibold">({filteredDevices.filter(d => monitoredImeIs.has(d.imei)).length})</span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setMonitoredImeIs(new Set())}
+                    className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors"
+                  >
+                    Quitar todas
+                  </button>
+                </div>
+                <div className="border border-sky-500/30 rounded-xl overflow-hidden h-56 overflow-y-auto bg-sky-500/5">
+                  {filteredDevices.filter(d => monitoredImeIs.has(d.imei)).length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-xs text-slate-600">
+                      Ninguna seleccionada
+                    </div>
+                  ) : filteredDevices.filter(d => monitoredImeIs.has(d.imei)).map(d => (
+                    <button
+                      key={d.imei}
+                      type="button"
+                      onClick={() => toggleDevice(d.imei)}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-sky-500/10 last:border-0 text-left hover:bg-rose-500/10 transition-colors group"
+                    >
+                      <svg className="w-3 h-3 text-sky-500/40 group-hover:text-rose-400 shrink-0 transition-colors" viewBox="0 0 10 10" fill="none">
+                        <path d="M7 5H3M5 3L3 5l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-sky-100 truncate group-hover:text-rose-300 transition-colors">
+                          {d.vehicle_name}
+                          {d.plate && <span className="text-sky-400/50 font-normal ml-1">· {d.plate}</span>}
+                        </p>
+                        <p className="text-[10px] text-sky-500/40 truncate">{d.imei}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
             </div>
           </Section>
 

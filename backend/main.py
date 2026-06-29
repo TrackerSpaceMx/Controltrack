@@ -17,7 +17,10 @@ from models import (
     MonthlyExpiration, ClientConfig, ClientConfigUpdate,
     SellerStats, InvoicePreview, RegisterAlertConfiguration
 )
+from monitoring_unit_process import UnitsMonitoring
 import crud
+
+units_monitoring = UnitsMonitoring()
 
 def _require_operator(session: dict):
     """Lanza 403 si el usuario es solo 'viewer'. Permite admin y operator."""
@@ -756,7 +759,7 @@ async def get_whatsapp_history(db=Depends(get_db), session=Depends(get_current_s
 
 
 
-@app.post("/api/monitoring")
+@app.post("/api/alert_configuration")
 async def register_alert_configuration(body: RegisterAlertConfiguration,db=Depends(get_db), session=Depends(get_current_session)):
     tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
 
@@ -765,8 +768,8 @@ async def register_alert_configuration(body: RegisterAlertConfiguration,db=Depen
     if body.notification_channel in ("email", "both") and not body.email:
         raise HTTPException(400, "email es requerido para el canal seleccionado")
     body = body.model_dump()
-
-    alert_config_response = await crud_tenants.create_alert_configuration(db,tenant_id,body)
+    alert_config_response = await units_monitoring.register_alert_configuration(db,tenant_id,body)
+    print("ALERT RESPONSE: ",alert_config_response)
 
     if alert_config_response:
         return {"success":True}
@@ -801,14 +804,42 @@ async def sync_tenant(db=Depends(get_db), session=Depends(get_current_session)):
     
     api_key= keys.get("ft_apikey")
     secret_key = keys.get("ft_secretkey")
-    print("KETYTTSS: ",keys)
-    # async with httpx.AsyncClient(timeout=30) as client:
-    #     try:
+    events_all_url = f"{ft_base}/events/all/apiKey/{api_key}/secretKey/{secret_key}"
+    
+    units_response = await units_monitoring.show_units_available(db,tenant_id,events_all_url)
 
-    #         r_events   = await client.get(t_url("events/all"))
+    if not units_response:
+        raise HTTPException(status_code=500, detail="Error getting units") 
+    
+    if len(units_response) ==0:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-        
-    #     except httpx.RequestError as e:
-    #         raise HTTPException(status_code=502, detail=str(e))
+    return {"success": True, "data": units_response}
 
-    return {"success": True}
+
+
+@app.get("/api/monitored_devices_status")
+async def sync_tenant(db=Depends(get_db), session=Depends(get_current_session)):
+    tenant_id = None if session.get("is_superadmin") else session.get("tenant_id")
+
+    if not tenant_id:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    ft_base = os.getenv("FULLTRACK_BASE_URL", "http://ws.fulltrack2.com")
+    keys = await crud_tenants.get_keys(db,tenant_id)
+    if keys is None:
+        raise HTTPException(status_code=500, detail="Error getting the devices")
+    
+    api_key= keys.get("ft_apikey")
+    secret_key = keys.get("ft_secretkey")
+    events_all_url = f"{ft_base}/events/all/apiKey/{api_key}/secretKey/{secret_key}"
+    
+    units_response = await units_monitoring.get_units_status(db,tenant_id,events_all_url)
+
+    if not units_response:
+        raise HTTPException(status_code=500, detail="Error getting units status") 
+    
+    if len(units_response) ==0:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    return {"success": True, "data": units_response}

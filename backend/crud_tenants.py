@@ -193,3 +193,44 @@ async def get_keys(cur, tenant_id: int) -> dict | None:
 
     row = await cur.fetchone()
     return row
+
+
+
+async def select_monitored_devices(cur, tenant_id: int) -> dict | None:
+    await cur.execute("""
+        SELECT
+            id,
+            tenant_id,
+            imei,
+            plate,
+            vehicle_name,
+            active,
+            last_signal_at,
+            last_whatsapp_alert_at,
+            last_email_alert_at
+        FROM monitored_devices
+        WHERE tenant_id = %s
+    """, (tenant_id,))
+
+    rows = await cur.fetchall()
+    return rows
+
+
+async def insert_monitored_devices(cur, tenant_id: int, devices: list) -> int:
+    if not devices:
+        return 0
+    
+    values = [
+        (tenant_id, d["imei"], d.get("plate"), d.get("vehicle_name"),d.get("active"))
+        for d in devices
+    ]
+    
+    await cur.executemany("""
+        INSERT INTO monitored_devices (tenant_id, imei, plate, vehicle_name,active)
+        VALUES (%s, %s, %s, %s,%s)
+        ON DUPLICATE KEY UPDATE
+            plate        = VALUES(plate),
+            vehicle_name = VALUES(vehicle_name)
+    """, values)
+    
+    return cur.rowcount
