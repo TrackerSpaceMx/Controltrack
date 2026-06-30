@@ -1,7 +1,8 @@
 import httpx
 import json
 import crud_tenants
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
 
 
 class UnitsMonitoring():
@@ -12,8 +13,12 @@ class UnitsMonitoring():
     async def organize_events_all_response(response):
         units_response=[]
         units_list = response.get("data")
-        for unit in units_list:
+        gmt6 = timezone(timedelta(hours=-6))
+        for unit in units_list:            
             last_signal_at = unit["ras_ras_data_ult_comunicacao"]
+            dt = datetime.strptime(last_signal_at, "%d/%m/%Y %H:%M:%S")
+            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(gmt6)
             minutes_difference = await UnitsMonitoring.minutes_without_signal(last_signal_at)
             unit_information ={
                 "plate": unit["ras_vei_placa"],
@@ -45,6 +50,21 @@ class UnitsMonitoring():
         now = datetime.utcnow()
         diff = now - last
         return int(diff.total_seconds() / 60)
+    
+
+    @staticmethod
+    async def convert_unit_to_minutes(value,unit):
+        value_in_minutes=0
+        if unit == "minutes":
+            value_in_minutes= int(value)
+        
+        elif unit =="hours":
+            value_in_minutes = int(value) *60
+        
+        elif unit  =="days":
+            value_in_minutes  =(int(value)*24)*60
+
+        return value_in_minutes
 
 
     async def show_units_available(self,db,tenant_id,url):
@@ -112,20 +132,62 @@ class UnitsMonitoring():
 
     async def get_units_status(self,db,tenant_id,url):
         try:
-            print("URL: ",url)
             units_information = await self.get_units_from_fulltrack(url)
             alert_configuration = await crud_tenants.get_alert_configuration(db,tenant_id)
             monitored_devices = await crud_tenants.select_monitored_devices(db,tenant_id)
 
             if not units_information:
                 return False
+            if not alert_configuration or not monitored_devices:
+                for unit in units_information:
+                    unit.update({"signal_status":"no_monitoring"})
+
+            warning_time_value = alert_configuration["warning_time_value"]
+            warning_time_unit = alert_configuration["warning_time_unit"]
+            alert_time_value = alert_configuration["alert_time_value"]
+            alert_time_unit = alert_configuration["alert_time_unit"]
+            units_merged = await UnitsMonitoring.merge_units(units_information,monitored_devices)
             
-            if not alert_configuration:
-                print("without configuration")
-  
             
-            print("RESPOINSE: ",units_information)
+            for unit in units_merged:
+                database_status= unit.get("in_database")
+                if database_status:
+                    minutes_ago = unit.get("minutes_ago")
+                    signal_status = await self.validate_unit_status(warning_time_value,warning_time_unit,alert_time_value,alert_time_unit,minutes_ago)
+                    unit.update({"signal_status":signal_status})
+                else:
+                    unit.update({"signal_status":"no_monitoring"})
+
+
+
+            return units_information
 
 
         except Exception as err:
             print("Error getting the monitored units status: ",err)
+            return False
+    
+
+    async def validate_unit_status(self,warning_time_value,warning_time_unit,alert_time_value,alert_time_unit,minutes_ago):    
+        warning_time_minutes = await UnitsMonitoring.convert_unit_to_minutes(warning_time_value,warning_time_unit)
+        alert_time_minutes = await UnitsMonitoring.convert_unit_to_minutes(alert_time_value,alert_time_unit)
+
+        signal_status = ""
+
+        if minutes_ago > warning_time_minutes and minutes_ago < alert_time_minutes:
+            print("HERE")
+        
+        elif minutes_ago > alert_time_minutes:
+            signal_status = "no_signal"
+        
+        else:
+            signal_status = "online"
+        
+
+        return signal_status
+
+
+
+
+    
+

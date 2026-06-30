@@ -1,32 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { api, DeviceRecord } from "../api";
-import { Activity, RefreshCw, Bell, Wifi, WifiOff, AlertTriangle, Search, X, Settings } from "lucide-react";
+import { getAuthToken } from "../api";
+import { Activity, RefreshCw, Bell, WifiOff, AlertTriangle, Search, X, Settings } from "lucide-react";
 import { AlertConfigPage } from "./AlertConfigPage";
 
-// ─── Signal status derived from days_until_expiration & last seen (simulated) ──
+const BASE = (import.meta as any).env?.VITE_API_URL ?? "http://0.0.0.0:8000";
 
-type SignalStatus = "online" | "warning" | "no_signal";
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-interface MonitoredDevice extends DeviceRecord {
+type SignalStatus = "online" | "warning" | "no_signal" | "no_monitoring";
+
+interface MonitoredDevice {
+  imei: string;
+  plate: string;
+  vehicle_name: string;
+  last_signal_at: string;
+  minutes_ago: number;
   signal_status: SignalStatus;
-  last_seen_minutes: number; // minutes ago (simulated from available data)
-}
-
-function deriveSignalStatus(d: DeviceRecord): SignalStatus {
-  // Use device status + expiration as proxy for signal health
-  if (d.status === "deactivated") return "no_signal";
-  if (d.status === "expired")     return "no_signal";
-  // Simulate last-seen based on days_until_expiration variance
-  const seed = parseInt(d.id.toString().slice(-3), 10) || 0;
-  const minutesAgo = (seed % 180) + 1; // 1–180 minutes
-  if (minutesAgo > 60)  return "no_signal";
-  if (minutesAgo > 15)  return "warning";
-  return "online";
-}
-
-function deriveLastSeen(d: DeviceRecord): number {
-  const seed = parseInt(d.id.toString().slice(-3), 10) || 0;
-  return (seed % 180) + 1;
 }
 
 function lastSeenLabel(minutes: number): string {
@@ -37,27 +26,20 @@ function lastSeenLabel(minutes: number): string {
   return `hace ${days} día${days > 1 ? "s" : ""}`;
 }
 
-function enrichForMonitoring(d: DeviceRecord): MonitoredDevice {
-  return {
-    ...d,
-    signal_status: deriveSignalStatus(d),
-    last_seen_minutes: deriveLastSeen(d),
-  };
-}
-
 // ─── Status dot ───────────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: SignalStatus }) {
-  if (status === "online")    return <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />;
-  if (status === "warning")   return <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />;
-  return                             <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />;
+  if (status === "online")        return <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />;
+  if (status === "warning")       return <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />;
+  if (status === "no_signal")     return <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />;
+  return                                 <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block" />;
 }
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
-function StatCard({
-  label, value, color, borderColor,
-}: { label: string; value: number; color: string; borderColor: string }) {
+function StatCard({ label, value, color, borderColor }: {
+  label: string; value: number; color: string; borderColor: string;
+}) {
   return (
     <div className={`flex-1 bg-slate-900 rounded-xl border-t-2 ${borderColor} p-4 min-w-0`}>
       <p className="text-xs text-slate-400 mb-1">{label}</p>
@@ -68,9 +50,7 @@ function StatCard({
 
 // ─── Filter chip ──────────────────────────────────────────────────────────────
 
-function FilterChip({
-  label, active, onClick,
-}: { label: string; active: boolean; onClick: () => void }) {
+function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -100,52 +80,59 @@ function Avatar({ name }: { name: string }) {
 
 function DeviceRow({ device }: { device: MonitoredDevice }) {
   const borderCls =
-    device.signal_status === "online"    ? "border-l-emerald-500" :
-    device.signal_status === "warning"   ? "border-l-amber-400"   :
-                                           "border-l-rose-500";
+    device.signal_status === "online"         ? "border-l-emerald-500" :
+    device.signal_status === "warning"        ? "border-l-amber-400"   :
+    device.signal_status === "no_signal"      ? "border-l-rose-500"    :
+                                                "border-l-slate-700";
 
   const lastSeenCls =
-    device.signal_status === "online"    ? "text-emerald-400" :
-    device.signal_status === "warning"   ? "text-amber-400"   :
-                                           "text-rose-400";
-
-  const minutesAgo = device.last_seen_minutes;
-  const showAlert = minutesAgo > 60 * 24; // more than 1 day
-
-  const vehicleType = device.model?.toLowerCase().includes("moto") ? "Moto" :
-                      device.model?.toLowerCase().includes("camion") ? "Camión" :
-                      device.model ?? "Vehículo";
+    device.signal_status === "online"         ? "text-emerald-400" :
+    device.signal_status === "warning"        ? "text-amber-400"   :
+    device.signal_status === "no_signal"      ? "text-rose-400"    :
+                                                "text-slate-500";
 
   return (
     <div className={`flex items-center gap-4 px-4 py-3 border-b border-slate-800/60 border-l-2 ${borderCls} hover:bg-slate-800/40 transition-colors`}>
-      {/* Avatar */}
-      <Avatar name={device.client_name ?? "?"} />
+      <Avatar name={device.vehicle_name ?? "?"} />
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <StatusDot status={device.signal_status} />
           <span className="text-sm font-semibold text-white truncate">
-            {device.device_name ?? `Unidad ${device.id}`}
+            {device.vehicle_name}
           </span>
         </div>
         <p className="text-xs text-slate-400 truncate mt-0.5">
-          {device.client_name} · {vehicleType}{device.plate ? ` · ${device.plate}` : ""}
+          {device.plate ? `${device.plate} · ` : ""}{device.imei}
         </p>
-        {showAlert && (
+        {device.signal_status === "no_monitoring" && (
+          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-slate-700/50 border border-slate-600 rounded-full text-[10px] text-slate-400">
+            Sin configuración de monitoreo
+          </span>
+        )}
+        {device.signal_status === "online" && (
+          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 rounded-full text-[10px] text-emerald-400">
+            En línea
+          </span>
+        )}
+        {device.signal_status === "warning" && (
+          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 rounded-full text-[10px] text-amber-400">
+            Advertencia
+          </span>
+        )}
+        {device.signal_status === "no_signal" && (
           <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-rose-500/10 border border-rose-500/30 rounded-full text-[10px] text-rose-400">
-            <AlertTriangle className="w-2.5 h-2.5" />
-            +1 día sin comunicación
+            Sin señal
           </span>
         )}
       </div>
 
-      {/* Last seen */}
       <div className="text-right shrink-0">
         <p className="text-[10px] text-slate-500">Última señal</p>
         <p className={`text-xs font-semibold ${lastSeenCls}`}>
-          {lastSeenLabel(minutesAgo)}
+          {lastSeenLabel(device.minutes_ago)}
         </p>
+        <p className="text-[10px] text-slate-600 mt-0.5">{device.last_signal_at}</p>
       </div>
     </div>
   );
@@ -153,29 +140,34 @@ function DeviceRow({ device }: { device: MonitoredDevice }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-type FilterType = "all" | "online" | "warning" | "no_signal";
+type FilterType = "all" | "online" | "warning" | "no_signal" | "no_monitoring";
 
 const AUTO_REFRESH_SECONDS = 180;
 
 export function MonitoringPage() {
-  const [devices, setDevices]         = useState<MonitoredDevice[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [filter, setFilter]           = useState<FilterType>("all");
-  const [search, setSearch]           = useState("");
+  const [devices,     setDevices]     = useState<MonitoredDevice[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [filter,      setFilter]      = useState<FilterType>("all");
+  const [search,      setSearch]      = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [countdown, setCountdown]     = useState(AUTO_REFRESH_SECONDS);
-  const [alertsOpen, setAlertsOpen]   = useState(false);
-  const [showConfig, setShowConfig]   = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [countdown,   setCountdown]   = useState(AUTO_REFRESH_SECONDS);
+  const [alertsOpen,  setAlertsOpen]  = useState(false);
+  const [showConfig,  setShowConfig]  = useState(false);
+  const intervalRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownRef  = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await api.getDevices({ page: 1, page_size: 200 });
-      setDevices(resp.devices.map(enrichForMonitoring));
-      setLastUpdated(new Date());
-      setCountdown(AUTO_REFRESH_SECONDS);
+      const res = await fetch(`${BASE}/api/monitored_devices_status`, {
+        headers: { "Authorization": `Bearer ${getAuthToken()}` },
+      });
+      if (res.ok) {
+        const { data } = await res.json();
+        setDevices(data);
+        setLastUpdated(new Date());
+        setCountdown(AUTO_REFRESH_SECONDS);
+      }
     } catch {
       // keep stale data
     } finally {
@@ -185,7 +177,7 @@ export function MonitoringPage() {
 
   useEffect(() => {
     load();
-    intervalRef.current = setInterval(load, AUTO_REFRESH_SECONDS * 1000);
+    intervalRef.current  = setInterval(load, AUTO_REFRESH_SECONDS * 1000);
     countdownRef.current = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000);
     return () => {
       clearInterval(intervalRef.current!);
@@ -194,11 +186,12 @@ export function MonitoringPage() {
   }, [load]);
 
   // Stats
-  const total     = devices.length;
-  const online    = devices.filter(d => d.signal_status === "online").length;
-  const warning   = devices.filter(d => d.signal_status === "warning").length;
-  const no_signal = devices.filter(d => d.signal_status === "no_signal").length;
-  const alerts    = devices.filter(d => d.last_seen_minutes > 60 * 24);
+  const total        = devices.length;
+  const online       = devices.filter(d => d.signal_status === "online").length;
+  const warning      = devices.filter(d => d.signal_status === "warning").length;
+  const no_signal    = devices.filter(d => d.signal_status === "no_signal").length;
+  const no_monitoring = devices.filter(d => d.signal_status === "no_monitoring").length;
+  const alerts       = devices.filter(d => d.signal_status === "no_signal");
 
   // Filtered list
   const filtered = devices
@@ -207,19 +200,18 @@ export function MonitoringPage() {
       if (!search) return true;
       const q = search.toLowerCase();
       return (
-        (d.device_name ?? "").toLowerCase().includes(q) ||
-        (d.client_name ?? "").toLowerCase().includes(q) ||
-        (d.plate       ?? "").toLowerCase().includes(q) ||
+        d.vehicle_name.toLowerCase().includes(q) ||
+        d.plate.toLowerCase().includes(q) ||
         d.imei.toLowerCase().includes(q)
       );
     });
 
-  // Sort: no_signal first, then warning, then online; within each group by last_seen desc
+  // Sort: no_signal → warning → online → no_monitoring
+  const ORDER: Record<SignalStatus, number> = { no_signal: 0, warning: 1, online: 2, no_monitoring: 3 };
   const sorted = [...filtered].sort((a, b) => {
-    const order = { no_signal: 0, warning: 1, online: 2 };
-    if (order[a.signal_status] !== order[b.signal_status])
-      return order[a.signal_status] - order[b.signal_status];
-    return b.last_seen_minutes - a.last_seen_minutes;
+    if (ORDER[a.signal_status] !== ORDER[b.signal_status])
+      return ORDER[a.signal_status] - ORDER[b.signal_status];
+    return b.minutes_ago - a.minutes_ago;
   });
 
   const formatTime = (d: Date) =>
@@ -236,7 +228,7 @@ export function MonitoringPage() {
       <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-2">
           <Activity className="w-5 h-5 text-sky-400" />
-          <h2 className="text-xl font-bold text-white">Monitoramento de unidades</h2>
+          <h2 className="text-xl font-bold text-white">Monitoreo de unidades</h2>
         </div>
 
         <div className="flex items-center gap-3">
@@ -245,7 +237,6 @@ export function MonitoringPage() {
               Actualizado {formatTime(lastUpdated)} · refresca en {countdown} s
             </span>
           )}
-
           <button
             onClick={load}
             disabled={loading}
@@ -254,8 +245,6 @@ export function MonitoringPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             Actualizar
           </button>
-
-          {/* Config button */}
           <button
             onClick={() => setShowConfig(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs transition-colors"
@@ -263,8 +252,6 @@ export function MonitoringPage() {
             <Settings className="w-3.5 h-3.5" />
             Configuración de alertas
           </button>
-
-          {/* Alerts button */}
           <button
             onClick={() => setAlertsOpen(v => !v)}
             className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-400 hover:bg-amber-500/20 text-xs transition-colors"
@@ -282,11 +269,11 @@ export function MonitoringPage() {
 
       {/* Alerts panel */}
       {alertsOpen && alerts.length > 0 && (
-        <div className="mx-6 mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 shrink-0">
+        <div className="mx-6 mt-3 rounded-xl border border-rose-500/30 bg-rose-500/5 p-3 shrink-0">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-amber-400 flex items-center gap-1">
+            <span className="text-xs font-semibold text-rose-400 flex items-center gap-1">
               <AlertTriangle className="w-3.5 h-3.5" />
-              {alerts.length} unidad{alerts.length > 1 ? "es" : ""} sin comunicación por más de 1 día
+              {alerts.length} unidad{alerts.length > 1 ? "es" : ""} sin señal
             </span>
             <button onClick={() => setAlertsOpen(false)}>
               <X className="w-3.5 h-3.5 text-slate-500 hover:text-white" />
@@ -294,8 +281,8 @@ export function MonitoringPage() {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {alerts.map(d => (
-              <span key={d.id} className="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400">
-                {d.device_name ?? `#${d.id}`}
+              <span key={d.imei} className="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                {d.vehicle_name} · {lastSeenLabel(d.minutes_ago)}
               </span>
             ))}
           </div>
@@ -304,19 +291,21 @@ export function MonitoringPage() {
 
       {/* Stat cards */}
       <div className="flex gap-3 px-6 pt-4 pb-2 shrink-0">
-        <StatCard label="Total"      value={total}     color="text-sky-400"     borderColor="border-sky-500" />
-        <StatCard label="En línea"   value={online}    color="text-emerald-400" borderColor="border-emerald-500" />
-        <StatCard label="Advertencia" value={warning}  color="text-amber-400"   borderColor="border-amber-500" />
-        <StatCard label="Sin señal"  value={no_signal} color="text-rose-400"    borderColor="border-rose-500" />
+        <StatCard label="Total"          value={total}         color="text-sky-400"     borderColor="border-sky-500" />
+        <StatCard label="En línea"       value={online}        color="text-emerald-400" borderColor="border-emerald-500" />
+        <StatCard label="Advertencia"    value={warning}       color="text-amber-400"   borderColor="border-amber-500" />
+        <StatCard label="Sin señal"      value={no_signal}     color="text-rose-400"    borderColor="border-rose-500" />
+        <StatCard label="Sin monitoreo"  value={no_monitoring} color="text-slate-400"   borderColor="border-slate-600" />
       </div>
 
       {/* Filters + search */}
       <div className="flex items-center justify-between px-6 py-3 shrink-0">
         <div className="flex items-center gap-2">
-          <FilterChip label="Todas"       active={filter === "all"}       onClick={() => setFilter("all")} />
-          <FilterChip label="En línea"    active={filter === "online"}    onClick={() => setFilter("online")} />
-          <FilterChip label="Advertencia" active={filter === "warning"}   onClick={() => setFilter("warning")} />
-          <FilterChip label="Sin señal"   active={filter === "no_signal"} onClick={() => setFilter("no_signal")} />
+          <FilterChip label="Todas"          active={filter === "all"}           onClick={() => setFilter("all")} />
+          <FilterChip label="En línea"       active={filter === "online"}        onClick={() => setFilter("online")} />
+          <FilterChip label="Advertencia"    active={filter === "warning"}       onClick={() => setFilter("warning")} />
+          <FilterChip label="Sin señal"      active={filter === "no_signal"}     onClick={() => setFilter("no_signal")} />
+          <FilterChip label="Sin monitoreo"  active={filter === "no_monitoring"} onClick={() => setFilter("no_monitoring")} />
         </div>
 
         <div className="relative">
@@ -324,7 +313,7 @@ export function MonitoringPage() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar unidad, cliente, placa…"
+            placeholder="Buscar unidad, placa, IMEI…"
             className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 w-56 transition-colors"
           />
           {search && (
@@ -344,14 +333,11 @@ export function MonitoringPage() {
           </div>
         ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-2 text-slate-500">
-            {filter === "online" ? (
-              <><WifiOff className="w-6 h-6" /><span className="text-sm">Ninguna unidad en línea</span></>
-            ) : (
-              <><Search className="w-6 h-6" /><span className="text-sm">Sin resultados para "{search}"</span></>
-            )}
+            <WifiOff className="w-6 h-6" />
+            <span className="text-sm">Sin resultados</span>
           </div>
         ) : (
-          sorted.map(d => <DeviceRow key={d.id} device={d} />)
+          sorted.map(d => <DeviceRow key={d.imei} device={d} />)
         )}
       </div>
     </div>

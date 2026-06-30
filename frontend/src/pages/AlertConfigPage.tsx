@@ -253,7 +253,7 @@ export function AlertConfigPage({ onBack }: Props) {
   const [loading,      setLoading]      = useState(true);
   const [apiError,     setApiError]     = useState<string | null>(null);
   const [errors,       setErrors]       = useState<Partial<Record<keyof AlertConfig, string>>>({});
-  const [allDevices,   setAllDevices]   = useState<{ imei: string; vehicle_name: string; plate: string }[]>([]);
+  const [allDevices,   setAllDevices]   = useState<{ imei: string; vehicle_name: string; plate: string; last_signal_at?: string; minutes_ago?: number; in_database: boolean }[]>([]);
   const [monitoredImeIs, setMonitoredImeIs] = useState<Set<string>>(new Set());
   const [deviceSearch, setDeviceSearch] = useState("");
 
@@ -264,7 +264,7 @@ export function AlertConfigPage({ onBack }: Props) {
         const res = await fetch(`${BASE}/api/monitoring`, {
           headers: { "Authorization": `Bearer ${getAuthToken()}` },
         });
-        if (res.ok) {
+        if (res.ok && res.status !== 204) {
           const { data } = await res.json();
           const channel = data.notification_channel ?? "";
           setConfig({
@@ -287,17 +287,10 @@ export function AlertConfigPage({ onBack }: Props) {
           console.log("[monitored_devices] data:", json);
           const data = json.data;
           setAllDevices(data);
-          const allFalse = data.every((d: any) => !d.in_database);
-          if (allFalse) {
-            // Primera vez — todos seleccionados por defecto
-            setMonitoredImeIs(new Set(data.map((d: any) => d.imei)));
-          } else {
-            // Ya tiene configuración — solo los marcados
-            setMonitoredImeIs(new Set(data.filter((d: any) => d.in_database).map((d: any) => d.imei)));
-          }
+          setMonitoredImeIs(new Set(data.filter((d: any) => d.in_database).map((d: any) => d.imei)));
         }
-      } catch {
-        // silent fail
+      } catch (e) {
+        console.error("[AlertConfigPage] error cargando datos:", e);
       } finally {
         setLoading(false);
       }
