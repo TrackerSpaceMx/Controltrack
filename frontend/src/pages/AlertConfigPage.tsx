@@ -253,8 +253,9 @@ export function AlertConfigPage({ onBack }: Props) {
   const [loading,      setLoading]      = useState(true);
   const [apiError,     setApiError]     = useState<string | null>(null);
   const [errors,       setErrors]       = useState<Partial<Record<keyof AlertConfig, string>>>({});
-  const [allDevices,   setAllDevices]   = useState<{ imei: string; vehicle_name: string; plate: string; last_signal_at?: string; minutes_ago?: number; in_database: boolean }[]>([]);
+  const [allDevices,   setAllDevices]   = useState<{ imei: string; vehicle_name: string; plate: string; last_signal_at?: string; minutes_ago?: number; in_database: boolean; in_maintenance?: boolean }[]>([]);
   const [monitoredImeIs, setMonitoredImeIs] = useState<Set<string>>(new Set());
+  const [maintenanceImeIs, setMaintenanceImeIs] = useState<Set<string>>(new Set());
   const [deviceSearch, setDeviceSearch] = useState("");
 
   React.useEffect(() => {
@@ -288,6 +289,7 @@ export function AlertConfigPage({ onBack }: Props) {
           const data = json.data;
           setAllDevices(data);
           setMonitoredImeIs(new Set(data.filter((d: any) => d.in_database).map((d: any) => d.imei)));
+          setMaintenanceImeIs(new Set(data.filter((d: any) => d.in_maintenance).map((d: any) => d.imei)));
         }
       } catch (e) {
         console.error("[AlertConfigPage] error cargando datos:", e);
@@ -299,6 +301,26 @@ export function AlertConfigPage({ onBack }: Props) {
 
   const toggleDevice = (imei: string) => {
     setMonitoredImeIs(prev => {
+      const next = new Set(prev);
+      if (next.has(imei)) {
+        next.delete(imei);
+        // Si se quita del monitoreo, tampoco tiene sentido dejarla en mantenimiento.
+        setMaintenanceImeIs(m => {
+          if (!m.has(imei)) return m;
+          const nextM = new Set(m);
+          nextM.delete(imei);
+          return nextM;
+        });
+      } else {
+        next.add(imei);
+      }
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const toggleMaintenance = (imei: string) => {
+    setMaintenanceImeIs(prev => {
       const next = new Set(prev);
       next.has(imei) ? next.delete(imei) : next.add(imei);
       return next;
@@ -393,8 +415,13 @@ export function AlertConfigPage({ onBack }: Props) {
         body: JSON.stringify({
           ...payload,
           devices: allDevices
-            .filter(d => monitoredImeIs.has(d.imei))
-            .map(d => ({ imei: d.imei, plate: d.plate, vehicle_name: d.vehicle_name })),
+  .map(d => ({
+    imei: d.imei,
+    plate: d.plate,
+    vehicle_name: d.vehicle_name,
+    active: monitoredImeIs.has(d.imei),
+    in_maintenance: maintenanceImeIs.has(d.imei),
+  }))
         }),
       });
 
@@ -625,7 +652,7 @@ export function AlertConfigPage({ onBack }: Props) {
                   </p>
                   <button
                     type="button"
-                    onClick={() => setMonitoredImeIs(new Set())}
+                    onClick={() => { setMonitoredImeIs(new Set()); setMaintenanceImeIs(new Set()); }}
                     className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors"
                   >
                     Quitar todas
@@ -636,25 +663,50 @@ export function AlertConfigPage({ onBack }: Props) {
                     <div className="flex items-center justify-center h-full text-xs text-slate-600">
                       Ninguna seleccionada
                     </div>
-                  ) : filteredDevices.filter(d => monitoredImeIs.has(d.imei)).map(d => (
+                  ) : filteredDevices.filter(d => monitoredImeIs.has(d.imei)).map(d => {
+                    const inMaint = maintenanceImeIs.has(d.imei);
+                    return (
                     <button
                       key={d.imei}
                       type="button"
                       onClick={() => toggleDevice(d.imei)}
-                      className="w-full flex items-center gap-2 px-3 py-2.5 border-b border-sky-500/10 last:border-0 text-left hover:bg-rose-500/10 transition-colors group"
+                      title="Quitar del monitoreo"
+                      className={`w-full flex items-center gap-2 px-3 py-2.5 border-b last:border-0 text-left transition-colors group hover:bg-rose-500/10 ${
+                        inMaint ? "bg-violet-500/10 border-violet-500/10" : "border-sky-500/10"
+                      }`}
                     >
                       <svg className="w-3 h-3 text-sky-500/40 group-hover:text-rose-400 shrink-0 transition-colors" viewBox="0 0 10 10" fill="none">
                         <path d="M7 5H3M5 3L3 5l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-sky-100 truncate group-hover:text-rose-300 transition-colors">
+                        <p className={`text-xs font-medium truncate transition-colors ${inMaint ? "text-violet-200" : "text-sky-100"}`}>
                           {d.vehicle_name}
-                          {d.plate && <span className="text-sky-400/50 font-normal ml-1">· {d.plate}</span>}
+                          {d.plate && <span className={`font-normal ml-1 ${inMaint ? "text-violet-400/50" : "text-sky-400/50"}`}>· {d.plate}</span>}
                         </p>
-                        <p className="text-[10px] text-sky-500/40 truncate">{d.imei}</p>
+                        <p className={`text-[10px] truncate ${inMaint ? "text-violet-500/50" : "text-sky-500/40"}`}>{d.imei}</p>
                       </div>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); toggleMaintenance(d.imei); }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.stopPropagation();
+                            toggleMaintenance(d.imei);
+                          }
+                        }}
+                        title={inMaint ? "Quitar de mantenimiento" : "Poner en mantenimiento"}
+                        className={`shrink-0 px-2 py-1 rounded-md text-[10px] font-medium border transition-colors cursor-pointer ${
+                          inMaint
+                            ? "bg-violet-500/20 border-violet-500/40 text-violet-300 hover:bg-violet-500/30"
+                            : "bg-transparent border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600"
+                        }`}
+                      >
+                        Mantenimiento
+                      </span>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

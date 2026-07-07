@@ -7,7 +7,7 @@ const BASE = (import.meta as any).env?.VITE_API_URL ?? "http://0.0.0.0:8000";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SignalStatus = "online" | "warning" | "no_signal" | "no_monitoring";
+type SignalStatus = "online" | "warning" | "no_signal" | "no_monitoring" | "in_maintenance";
 
 interface MonitoredDevice {
   imei: string;
@@ -16,6 +16,8 @@ interface MonitoredDevice {
   last_signal_at: string;
   minutes_ago: number;
   signal_status: SignalStatus;
+  in_maintenance?: boolean;
+  in_database?: boolean;
 }
 
 function lastSeenLabel(minutes: number): string {
@@ -29,10 +31,11 @@ function lastSeenLabel(minutes: number): string {
 // ─── Status dot ───────────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: SignalStatus }) {
-  if (status === "online")        return <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />;
-  if (status === "warning")       return <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />;
-  if (status === "no_signal")     return <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />;
-  return                                 <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block" />;
+  if (status === "online")         return <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" />;
+  if (status === "warning")        return <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />;
+  if (status === "no_signal")      return <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />;
+  if (status === "in_maintenance") return <span className="w-2.5 h-2.5 rounded-full bg-violet-400 inline-block" />;
+  return                                  <span className="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block" />;
 }
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
@@ -83,12 +86,14 @@ function DeviceRow({ device }: { device: MonitoredDevice }) {
     device.signal_status === "online"         ? "border-l-emerald-500" :
     device.signal_status === "warning"        ? "border-l-amber-400"   :
     device.signal_status === "no_signal"      ? "border-l-rose-500"    :
+    device.signal_status === "in_maintenance" ? "border-l-violet-400"  :
                                                 "border-l-slate-700";
 
   const lastSeenCls =
     device.signal_status === "online"         ? "text-emerald-400" :
     device.signal_status === "warning"        ? "text-amber-400"   :
     device.signal_status === "no_signal"      ? "text-rose-400"    :
+    device.signal_status === "in_maintenance" ? "text-violet-400"  :
                                                 "text-slate-500";
 
   return (
@@ -125,6 +130,11 @@ function DeviceRow({ device }: { device: MonitoredDevice }) {
             Sin señal
           </span>
         )}
+        {device.signal_status === "in_maintenance" && (
+          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-violet-500/10 border border-violet-500/30 rounded-full text-[10px] text-violet-400">
+            En mantenimiento
+          </span>
+        )}
       </div>
 
       <div className="text-right shrink-0">
@@ -140,7 +150,7 @@ function DeviceRow({ device }: { device: MonitoredDevice }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-type FilterType = "all" | "online" | "warning" | "no_signal" | "no_monitoring";
+type FilterType = "all" | "online" | "warning" | "no_signal" | "no_monitoring" | "in_maintenance";
 
 const AUTO_REFRESH_SECONDS = 180;
 
@@ -191,6 +201,7 @@ export function MonitoringPage() {
   const warning      = devices.filter(d => d.signal_status === "warning").length;
   const no_signal    = devices.filter(d => d.signal_status === "no_signal").length;
   const no_monitoring = devices.filter(d => d.signal_status === "no_monitoring").length;
+  const in_maintenance = devices.filter(d => d.signal_status === "in_maintenance").length;
   const alerts       = devices.filter(d => d.signal_status === "no_signal");
 
   // Filtered list
@@ -207,7 +218,7 @@ export function MonitoringPage() {
     });
 
   // Sort: no_signal → warning → online → no_monitoring
-  const ORDER: Record<SignalStatus, number> = { no_signal: 0, warning: 1, online: 2, no_monitoring: 3 };
+  const ORDER: Record<SignalStatus, number> = { no_signal: 0, warning: 1, online: 2, in_maintenance: 3, no_monitoring: 4 };
   const sorted = [...filtered].sort((a, b) => {
     if (ORDER[a.signal_status] !== ORDER[b.signal_status])
       return ORDER[a.signal_status] - ORDER[b.signal_status];
@@ -295,6 +306,7 @@ export function MonitoringPage() {
         <StatCard label="En línea"       value={online}        color="text-emerald-400" borderColor="border-emerald-500" />
         <StatCard label="Advertencia"    value={warning}       color="text-amber-400"   borderColor="border-amber-500" />
         <StatCard label="Sin señal"      value={no_signal}     color="text-rose-400"    borderColor="border-rose-500" />
+        <StatCard label="En mantenimiento" value={in_maintenance} color="text-violet-400" borderColor="border-violet-400" />
         <StatCard label="Sin monitoreo"  value={no_monitoring} color="text-slate-400"   borderColor="border-slate-600" />
       </div>
 
@@ -305,6 +317,7 @@ export function MonitoringPage() {
           <FilterChip label="En línea"       active={filter === "online"}        onClick={() => setFilter("online")} />
           <FilterChip label="Advertencia"    active={filter === "warning"}       onClick={() => setFilter("warning")} />
           <FilterChip label="Sin señal"      active={filter === "no_signal"}     onClick={() => setFilter("no_signal")} />
+          <FilterChip label="En mantenimiento" active={filter === "in_maintenance"} onClick={() => setFilter("in_maintenance")} />
           <FilterChip label="Sin monitoreo"  active={filter === "no_monitoring"} onClick={() => setFilter("no_monitoring")} />
         </div>
 

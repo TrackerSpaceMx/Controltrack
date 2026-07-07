@@ -205,6 +205,7 @@ async def select_monitored_devices(cur, tenant_id: int) -> dict | None:
             plate,
             vehicle_name,
             active,
+            in_maintenance,
             last_signal_at,
             last_whatsapp_alert_at,
             last_email_alert_at
@@ -221,16 +222,18 @@ async def insert_monitored_devices(cur, tenant_id: int, devices: list) -> int:
         return 0
     
     values = [
-        (tenant_id, d["imei"], d.get("plate"), d.get("vehicle_name"),d.get("active"))
+        (tenant_id, d["imei"], d.get("plate"), d.get("vehicle_name"),d.get("active"),d.get("in_maintenance"))
         for d in devices
     ]
     
     await cur.executemany("""
-        INSERT INTO monitored_devices (tenant_id, imei, plate, vehicle_name,active)
-        VALUES (%s, %s, %s, %s,%s)
+        INSERT INTO monitored_devices (tenant_id, imei, plate, vehicle_name,active,in_maintenance)
+        VALUES (%s, %s, %s, %s,%s,%s)
         ON DUPLICATE KEY UPDATE
             plate        = VALUES(plate),
-            vehicle_name = VALUES(vehicle_name)
+            vehicle_name = VALUES(vehicle_name),
+            active = VALUES(active),
+            in_maintenance = VALUES(in_maintenance)
     """, values)
     
     return cur.rowcount

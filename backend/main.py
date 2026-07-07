@@ -769,7 +769,7 @@ async def register_alert_configuration(body: RegisterAlertConfiguration,db=Depen
         raise HTTPException(400, "email es requerido para el canal seleccionado")
     body = body.model_dump()
     alert_config_response = await units_monitoring.register_alert_configuration(db,tenant_id,body)
-    print("ALERT RESPONSE: ",alert_config_response)
+
 
     if alert_config_response:
         return {"success":True}
