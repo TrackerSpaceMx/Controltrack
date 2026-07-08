@@ -23,6 +23,7 @@ export interface DeviceRecord {
   install_date: string | null;
   monthly_price: number | null;
   rfc: string | null;
+  razon_social: string | null;
   custom_fields?: CustomField[];
 }
 
@@ -49,6 +50,20 @@ export interface CustomField {
   field_label: string;
   field_type: "text" | "number" | "date";
   field_value: string | null;
+}
+
+export interface RfcBillingGroup {
+  rfc: string | null;
+  razon_social: string | null;
+  device_count: number;
+  total: number;
+}
+
+export interface ClientBillingSummary {
+  client_fulltrack_id: string;
+  client_name: string;
+  groups: RfcBillingGroup[];
+  total_general: number;
 }
 
 export interface DeviceListResponse {
@@ -143,6 +158,7 @@ function enrichDevice(d: any): DeviceRecord {
   if (d.install_date === undefined)     d.install_date = null;
   if (d.monthly_price === undefined)    d.monthly_price = null;
   if (d.rfc === undefined)              d.rfc = null;
+  if (d.razon_social === undefined)     d.razon_social = null;
   if (d.custom_fields === undefined)    d.custom_fields = [];
   return d as DeviceRecord;
 }
@@ -192,6 +208,8 @@ export const api = {
     seller_filter?: string;
     installer_filter?: string;
     contract_type_filter?: string;
+    search_rfc?: string;
+    search_custom?: string;
     page?: number;
     page_size?: number;
   }): Promise<DeviceListResponse> => {
@@ -208,6 +226,8 @@ export const api = {
     if (params.seller_filter)        qs.set("seller_filter",        params.seller_filter);
     if (params.installer_filter)     qs.set("installer_filter",     params.installer_filter);
     if (params.contract_type_filter) qs.set("contract_type_filter", params.contract_type_filter);
+    if (params.search_rfc)           qs.set("search_rfc",           params.search_rfc);
+    if (params.search_custom)        qs.set("search_custom",        params.search_custom);
     qs.set("page",      String(params.page      ?? 1));
     qs.set("page_size", String(params.page_size ?? 10));
 
@@ -227,6 +247,9 @@ export const api = {
     return raw.map(enrichDevice);
   },
 
+  getClientBillingByRfc: (clientId: string) =>
+    authReq<ClientBillingSummary>(`/api/clients/${clientId}/billing-by-rfc`),
+
   updateExpiration: (deviceId: number, expiration_date: string) =>
     authReq<{ success: boolean }>(`/api/devices/${deviceId}/expiration`, {
       method: "PUT",
@@ -240,6 +263,7 @@ export const api = {
     install_date: string;
     monthly_price: number;
     rfc: string;
+    razon_social: string;
     auto_compute_expiration: boolean;
   }>) =>
     authReq<{ success: boolean; device: DeviceRecord }>(`/api/devices/${deviceId}/details`, {

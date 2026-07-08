@@ -187,60 +187,93 @@ async def get_devices(cur, search_client=None, search_imei=None, search_device=N
                       expire_from=None, expire_to=None,
                       seller_filter=None, installer_filter=None,
                       contract_type_filter=None,
+                      search_rfc=None, search_custom=None,
                       page=1, page_size=10, tenant_id=None):
-    sql = "SELECT * FROM devices WHERE 1=1"
+    base = "FROM devices d WHERE 1=1"
     params = []
 
     if tenant_id is not None:
-        sql += " AND tenant_id = %s"
+        base += " AND d.tenant_id = %s"
         params.append(tenant_id)
 
     if search_client:
-        sql += " AND client_name LIKE %s"
+        base += " AND d.client_name LIKE %s"
         params.append(f"%{search_client}%")
     if search_imei:
-        sql += " AND imei LIKE %s"
+        base += " AND d.imei LIKE %s"
         params.append(f"%{search_imei}%")
     if search_device:
-        sql += " AND (device_name LIKE %s OR plate LIKE %s OR sim LIKE %s)"
+        base += " AND (d.device_name LIKE %s OR d.plate LIKE %s OR d.sim LIKE %s)"
         params.extend([f"%{search_device}%", f"%{search_device}%", f"%{search_device}%"])
     if status_filter and status_filter != "all":
-        sql += " AND status = %s"
+        base += " AND d.status = %s"
         params.append(status_filter)
     if seller_filter:
-        sql += " AND seller_name LIKE %s"
+        base += " AND d.seller_name LIKE %s"
         params.append(f"%{seller_filter}%")
     if installer_filter:
-        sql += " AND installer_name LIKE %s"
+        base += " AND d.installer_name LIKE %s"
         params.append(f"%{installer_filter}%")
     if contract_type_filter:
-        sql += " AND contract_type = %s"
+        base += " AND d.contract_type = %s"
         params.append(contract_type_filter)
+    if search_rfc:
+        # Busca tanto en el RFC del dispositivo como en la razón social
+        base += " AND (d.rfc LIKE %s OR d.razon_social LIKE %s)"
+        params.extend([f"%{search_rfc}%", f"%{search_rfc}%"])
+    if search_custom:
+        # Busca por etiqueta o valor de cualquier campo personalizado asociado al dispositivo
+        base += """ AND d.id IN (
+            SELECT device_id FROM custom_fields
+            WHERE field_label LIKE %s OR field_value LIKE %s
+        )"""
+        params.extend([f"%{search_custom}%", f"%{search_custom}%"])
     if expiring_days is not None:
         today = date.today()
         limit = today + timedelta(days=int(expiring_days))
-        sql += " AND expiration_date >= %s AND expiration_date <= %s"
+        base += " AND d.expiration_date >= %s AND d.expiration_date <= %s"
         params.extend([today.isoformat(), limit.isoformat()])
     if expire_from:
-        sql += " AND expiration_date >= %s"
+        base += " AND d.expiration_date >= %s"
         params.append(expire_from)
     if expire_to:
-        sql += " AND expiration_date <= %s"
+        base += " AND d.expiration_date <= %s"
         params.append(expire_to)
 
-    count_sql = sql.replace("SELECT *", "SELECT COUNT(*) as cnt")
+    count_sql = "SELECT COUNT(*) as cnt " + base
     await cur.execute(count_sql, params)
     count_row = await cur.fetchone()
     total = int(count_row["cnt"]) if count_row else 0
 
-    sql += " ORDER BY client_name, device_name"
+    sql = "SELECT d.* " + base + " ORDER BY d.client_name, d.device_name"
     offset = (page - 1) * page_size
     sql += " LIMIT %s OFFSET %s"
     params.extend([page_size, offset])
 
     await cur.execute(sql, params)
     rows = await cur.fetchall()
-    return {"devices": [_enrich_row(dict(r)) for r in rows], "total": total, "page": page, "page_size": page_size}
+    devices = [_enrich_row(dict(r)) for r in rows]
+
+    # Enriquecer con campos personalizados en una sola consulta (evita N+1)
+    if devices:
+        ids = [d["id"] for d in devices]
+        placeholders = ",".join(["%s"] * len(ids))
+        await cur.execute(
+            f"SELECT device_id, field_key, field_label, field_type, field_value "
+            f"FROM custom_fields WHERE device_id IN ({placeholders}) ORDER BY id",
+            ids
+        )
+        cf_rows = await cur.fetchall()
+        by_device = {}
+        for f in cf_rows:
+            by_device.setdefault(f["device_id"], []).append({
+                "field_key": f["field_key"], "field_label": f["field_label"],
+                "field_type": f["field_type"], "field_value": f["field_value"],
+            })
+        for d in devices:
+            d["custom_fields"] = by_device.get(d["id"], [])
+
+    return {"devices": devices, "total": total, "page": page, "page_size": page_size}
 
 
 async def get_device_by_id(cur, device_id: int):
@@ -267,11 +300,50 @@ async def get_devices_by_client(cur, client_fulltrack_id: str):
     return [_enrich_row(dict(r)) for r in rows]
 
 
+async def get_client_billing_by_rfc(cur, client_fulltrack_id: str):
+    """Agrupa la facturación mensual del cliente por RFC / razón social.
+
+    Permite que un mismo cliente (ej. 'Alex') con varios vehículos, donde cada
+    vehículo puede facturarse a un RFC/razón social distinto, muestre cuánto se
+    le factura a cada RFC de forma independiente además del total general.
+    """
+    await cur.execute(
+        """SELECT rfc, razon_social, monthly_price, client_name
+           FROM devices
+           WHERE client_fulltrack_id=%s AND status <> 'deactivated'""",
+        (client_fulltrack_id,)
+    )
+    rows = await cur.fetchall()
+
+    groups: dict = {}
+    client_name = None
+    total_general = 0.0
+    for r in rows:
+        client_name = r["client_name"] or client_name
+        price = float(r["monthly_price"]) if r["monthly_price"] is not None else 0.0
+        rfc = (r["rfc"] or "").strip() or None
+        razon_social = (r["razon_social"] or "").strip() or None
+        key = (rfc, razon_social) if (rfc or razon_social) else ("__sin_asignar__", None)
+        if key not in groups:
+            groups[key] = {"rfc": rfc, "razon_social": razon_social, "device_count": 0, "total": 0.0}
+        groups[key]["device_count"] += 1
+        groups[key]["total"] += price
+        total_general += price
+
+    group_list = sorted(groups.values(), key=lambda g: (g["rfc"] is None, g["rfc"] or "", g["razon_social"] or ""))
+    return {
+        "client_fulltrack_id": client_fulltrack_id,
+        "client_name": client_name or client_fulltrack_id,
+        "groups": group_list,
+        "total_general": round(total_general, 2),
+    }
+
+
 # ─── Update device details ────────────────────────────────────────────────────
 
 async def update_device_details(cur, device_id: int, data: dict) -> bool:
     # Campos actualizables
-    fields = ["contract_type", "seller_name", "installer_name", "install_date", "monthly_price", "rfc"]
+    fields = ["contract_type", "seller_name", "installer_name", "install_date", "monthly_price", "rfc", "razon_social"]
     updates = {k: v for k, v in data.items() if k in fields and v is not None}
 
     # Auto-calcular vencimiento si se pide

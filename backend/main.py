@@ -15,7 +15,7 @@ from models import (
     LoginRequest, LoginResponse, SyncResponse, DashboardStats,
     UpdateExpirationRequest, UpdateDeviceDetailsRequest, CustomFieldUpsert,
     MonthlyExpiration, ClientConfig, ClientConfigUpdate,
-    SellerStats, InvoicePreview, RegisterAlertConfiguration
+    SellerStats, InvoicePreview, RegisterAlertConfiguration, ClientBillingSummary
 )
 from monitoring_unit_process import UnitsMonitoring
 import crud
@@ -176,6 +176,8 @@ async def get_devices(
     seller_filter:         Optional[str] = Query(None),
     installer_filter:      Optional[str] = Query(None),
     contract_type_filter:  Optional[str] = Query(None),
+    search_rfc:            Optional[str] = Query(None),
+    search_custom:         Optional[str] = Query(None),
     tenant_id:             Optional[int] = Query(None),  # superadmin puede filtrar por tenant
     page:                  int = Query(1, ge=1),
     page_size:             int = Query(10, ge=1, le=1000),
@@ -192,6 +194,7 @@ async def get_devices(
         db, search_client, search_imei, search_device, status_filter,
         expiring_days, expire_from, expire_to,
         seller_filter, installer_filter, contract_type_filter,
+        search_rfc, search_custom,
         page, page_size, tenant_id=effective_tenant_id
     )
 
@@ -231,11 +234,14 @@ async def get_device_custom_fields(device_id: int, db=Depends(get_db), session=D
     tenant_id = _effective_tenant(session, None)
     async with db.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            q = "SELECT field_key, field_label, field_type, field_value FROM device_custom_fields WHERE device_id=%s"
+            # NOTA: la tabla se llama "custom_fields" (no "device_custom_fields").
+            # El nombre incorrecto hacía que esta consulta fallara silenciosamente
+            # en el frontend y los campos personalizados nunca se mostraran.
+            q = "SELECT field_key, field_label, field_type, field_value FROM custom_fields WHERE device_id=%s"
             params = [device_id]
             if tenant_id is not None:
                 q = """SELECT cf.field_key, cf.field_label, cf.field_type, cf.field_value
-                       FROM device_custom_fields cf
+                       FROM custom_fields cf
                        JOIN devices d ON d.id = cf.device_id
                        WHERE cf.device_id=%s AND d.tenant_id=%s"""
                 params.append(tenant_id)
@@ -457,6 +463,15 @@ async def get_client_devices(client_fulltrack_id: str, db=Depends(get_db)):
 @app.get("/api/clients/{client_fulltrack_id}/invoice-preview", response_model=InvoicePreview)
 async def get_invoice_preview(client_fulltrack_id: str, db=Depends(get_db)):
     return await crud.get_invoice_preview(db, client_fulltrack_id)
+
+@app.get("/api/clients/{client_fulltrack_id}/billing-by-rfc", response_model=ClientBillingSummary)
+async def get_client_billing_by_rfc(client_fulltrack_id: str, db=Depends(get_db)):
+    """Desglosa la facturación mensual de un cliente por RFC / razón social.
+
+    Útil cuando el cliente final (ej. 'Alex') tiene varios vehículos y algunos
+    se facturan a un RFC/razón social y otros a un RFC/razón social distinto.
+    """
+    return await crud.get_client_billing_by_rfc(db, client_fulltrack_id)
 
 
 # ─── Export ───────────────────────────────────────────────────────────────────

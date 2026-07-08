@@ -136,6 +136,8 @@ function ExpandedDeviceRow({ device, colSpan }: { device: DeviceRecord; colSpan:
             {device.monthly_price != null && <InfoChip icon={<span className="text-sky-400 text-xs font-bold">$</span>} bg="bg-sky-500/15" label="Precio mensual" value={`$${device.monthly_price.toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`} />}
             {/* RFC */}
             {device.rfc && <InfoChip icon={<span className="text-rose-400 text-xs font-bold">RFC</span>} bg="bg-rose-500/15" label="RFC" value={device.rfc} mono />}
+            {/* Razón social */}
+            {device.razon_social && <InfoChip icon={<span className="text-rose-400 text-xs font-bold">RS</span>} bg="bg-rose-500/15" label="Razón social" value={device.razon_social} />}
 
             {/* Vehicle data */}
             {loadingDetail ? (
@@ -268,6 +270,8 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
   const [expireTo,      setExpireTo]      = useState("");
   const [sellerFilter,  setSellerFilter]  = useState("");
   const [contractFilter,setContractFilter]= useState("");
+  const [searchRfc,     setSearchRfc]     = useState("");
+  const [searchCustom,  setSearchCustom]  = useState("");
   const [page,          setPage]          = useState(1);
 
   // Multi-select
@@ -306,6 +310,8 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
           expire_to:            expireTo       || undefined,
           seller_filter:        sellerFilter   || undefined,
           contract_type_filter: contractFilter || undefined,
+          search_rfc:           searchRfc      || undefined,
+          search_custom:        searchCustom   || undefined,
           page,
           page_size: PAGE_SIZE,
         }),
@@ -319,10 +325,10 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
     } catch (e: any) {
       setError(e.message ?? "Error cargando datos");
     } finally { setLoading(false); }
-  }, [searchClient, searchImei, searchDevice, statusFilter, expiringDays, expireFrom, expireTo, sellerFilter, contractFilter, page]);
+  }, [searchClient, searchImei, searchDevice, statusFilter, expiringDays, expireFrom, expireTo, sellerFilter, contractFilter, searchRfc, searchCustom, page]);
 
   useEffect(() => { loadData(); }, [loadData]);
-  useEffect(() => { setPage(1); }, [searchClient, searchImei, searchDevice, statusFilter, expiringDays, expireFrom, expireTo, sellerFilter, contractFilter]);
+  useEffect(() => { setPage(1); }, [searchClient, searchImei, searchDevice, statusFilter, expiringDays, expireFrom, expireTo, sellerFilter, contractFilter, searchRfc, searchCustom]);
 
   // Auto-refresh every 2 minutes
   useEffect(() => {
@@ -404,6 +410,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
     setSearchClient(""); setSearchImei(""); setSearchDevice("");
     setExpiringDays(undefined); setExpireFrom(""); setExpireTo("");
     setSellerFilter(""); setContractFilter(""); setStatusFilter("all");
+    setSearchRfc(""); setSearchCustom("");
   }
 
   function toggleRow(e: React.MouseEvent, id: number) {
@@ -411,7 +418,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
     setExpandedRows(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }
 
-  const hasFilters = !!(searchClient || searchImei || searchDevice || expiringDays !== undefined || expireFrom || expireTo || sellerFilter || contractFilter || statusFilter !== "all");
+  const hasFilters = !!(searchClient || searchImei || searchDevice || expiringDays !== undefined || expireFrom || expireTo || sellerFilter || contractFilter || searchRfc || searchCustom || statusFilter !== "all");
   const currentMonthLabel = new Date().toLocaleDateString("es-MX", { month: "long", year: "numeric" });
   const COL_COUNT = 12;
 
@@ -529,6 +536,28 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                   <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-slate-500" />
                   <input value={sellerFilter} onChange={e => setSellerFilter(e.target.value)}
                     placeholder="Nombre del vendedor"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-2 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition-colors" />
+                </div>
+              </div>
+
+              {/* RFC / Razón social */}
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">RFC / Razón social</label>
+                <div className="relative">
+                  <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-slate-500" />
+                  <input value={searchRfc} onChange={e => setSearchRfc(e.target.value)}
+                    placeholder="RFC o razón social..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-2 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition-colors" />
+                </div>
+              </div>
+
+              {/* Campo personalizado */}
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Campo personalizado</label>
+                <div className="relative">
+                  <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-slate-500" />
+                  <input value={searchCustom} onChange={e => setSearchCustom(e.target.value)}
+                    placeholder="Buscar por nombre o valor..."
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-2 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition-colors" />
                 </div>
               </div>

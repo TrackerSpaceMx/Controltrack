@@ -88,12 +88,14 @@ async def init_db():
                     install_date         DATE DEFAULT NULL,
                     monthly_price        DECIMAL(10,2) DEFAULT NULL,
                     rfc                  VARCHAR(20) DEFAULT NULL,
+                    razon_social         VARCHAR(255) DEFAULT NULL,
                     ras_ins_id           VARCHAR(50) DEFAULT NULL,
                     whatsapp_number      VARCHAR(20) DEFAULT NULL,
                     created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     UNIQUE KEY uq_imei_tenant (imei, tenant_id),
                     INDEX idx_client     (client_fulltrack_id),
+                    INDEX idx_rfc        (rfc),
                     INDEX idx_status     (status),
                     INDEX idx_expiration (expiration_date),
                     INDEX idx_tenant     (tenant_id)
@@ -203,6 +205,7 @@ async def migrate_db():
                 ("install_date",    "DATE DEFAULT NULL"),
                 ("monthly_price",   "DECIMAL(10,2) DEFAULT NULL"),
                 ("rfc",             "VARCHAR(20) DEFAULT NULL"),
+                ("razon_social",    "VARCHAR(255) DEFAULT NULL"),
                 ("tenant_id",       "INT DEFAULT NULL"),
                 ("whatsapp_number", "VARCHAR(20) DEFAULT NULL"),
             ]
@@ -219,6 +222,12 @@ async def migrate_db():
                     "ALTER TABLE client_config ADD COLUMN whatsapp_number VARCHAR(20) DEFAULT NULL"
                 )
                 print("Columna client_config.whatsapp_number agregada")
+            except Exception:
+                pass  # ya existe
+
+            try:
+                await cur.execute("ALTER TABLE devices ADD INDEX idx_rfc (rfc)")
+                print("Índice devices.idx_rfc agregado")
             except Exception:
                 pass  # ya existe
 

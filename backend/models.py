@@ -38,6 +38,7 @@ class DeviceResponse(BaseModel):
     install_date: Optional[date] = None
     monthly_price: Optional[float] = None
     rfc: Optional[str] = None
+    razon_social: Optional[str] = None
     custom_fields: Optional[List[Dict[str, Any]]] = None
 
     class Config:
@@ -59,6 +60,7 @@ class UpdateDeviceDetailsRequest(BaseModel):
     install_date: Optional[date] = None
     monthly_price: Optional[float] = None
     rfc: Optional[str] = None
+    razon_social: Optional[str] = None
     # Auto-calcular vencimiento basado en contract_type e install_date
     auto_compute_expiration: Optional[bool] = False
 
@@ -132,6 +134,18 @@ class InvoiceItem(BaseModel):
     monthly_price: Optional[float]
     status: str
     expiration_date: Optional[date]
+
+class RfcBillingGroup(BaseModel):
+    rfc: Optional[str] = None
+    razon_social: Optional[str] = None
+    device_count: int
+    total: float
+
+class ClientBillingSummary(BaseModel):
+    client_fulltrack_id: str
+    client_name: str
+    groups: List[RfcBillingGroup]
+    total_general: float
 
 class InvoicePreview(BaseModel):
     client_fulltrack_id: str

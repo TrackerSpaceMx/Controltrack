@@ -27,6 +27,7 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
   const [installDate,    setInstallDate]    = useState("");
   const [monthlyPrice,   setMonthlyPrice]   = useState("");
   const [rfc,            setRfc]            = useState("");
+  const [razonSocial,    setRazonSocial]    = useState("");
 
   // Custom fields
   const [customFields,   setCustomFields]   = useState<CustomField[]>([]);
@@ -42,6 +43,7 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
     setInstallDate( device.install_date    ?? "");
     setMonthlyPrice(device.monthly_price   != null ? String(device.monthly_price) : "");
     setRfc(         device.rfc             ?? "");
+    setRazonSocial( device.razon_social    ?? "");
     setCustomFields(device.custom_fields   ?? []);
     setError("");
     setSuccess(false);
@@ -59,6 +61,7 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
         install_date:            installDate    || undefined,
         monthly_price:           monthlyPrice   ? parseFloat(monthlyPrice) : undefined,
         rfc:                     rfc            || undefined,
+        razon_social:            razonSocial    || undefined,
       });
       setSuccess(true);
       onSaved(res.device);
@@ -193,18 +196,35 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
             </div>
           </div>
 
-          {/* RFC */}
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">RFC del cliente</label>
-            <input
-              type="text"
-              value={rfc}
-              onChange={e => setRfc(e.target.value.toUpperCase())}
-              placeholder="XAXX010101000"
-              maxLength={13}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-            />
+          {/* RFC + Razón social */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">RFC</label>
+              <input
+                type="text"
+                value={rfc}
+                onChange={e => setRfc(e.target.value.toUpperCase())}
+                placeholder="XAXX010101000"
+                maxLength={13}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Razón social</label>
+              <input
+                type="text"
+                value={razonSocial}
+                onChange={e => setRazonSocial(e.target.value)}
+                placeholder="Nombre de la empresa"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+              />
+            </div>
           </div>
+          <p className="text-[11px] text-slate-500 -mt-3">
+            Si tu cliente factura a más de un RFC/razón social, asigna aquí el RFC y la razón social
+            que corresponde a este vehículo en particular. El desglose de facturación por RFC se
+            muestra en los detalles del cliente.
+          </p>
 
           {/* Campos personalizados */}
           <div>

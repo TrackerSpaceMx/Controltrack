@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { X, Power, Calendar, Loader2, Settings, FileText, MessageCircle, Phone } from "lucide-react";
-import { api, adminApi, DeviceRecord } from "../api";
+import { api, adminApi, DeviceRecord, ClientBillingSummary } from "../api";
 import { StatusBadge } from "./Badge";
 import { ClientConfigModal } from "./ClientConfigModal";
 import { InvoicePreviewModal } from "./InvoicePreviewModal";
@@ -27,6 +27,17 @@ export function ClientDrawer({ isOpen, onClose, clientId, onRenewDevice, onToggl
   const [waNumber,       setWaNumber]       = useState("");
   const [waSending,      setWaSending]      = useState(false);
   const [waMsg,          setWaMsg]          = useState("");
+  const [billing,        setBilling]        = useState<ClientBillingSummary | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !clientId) return;
+    setBillingLoading(true);
+    api.getClientBillingByRfc(clientId)
+      .then(setBilling)
+      .catch(() => setBilling(null))
+      .finally(() => setBillingLoading(false));
+  }, [isOpen, clientId]);
 
   useEffect(() => {
     if (!isOpen || !clientId) return;
@@ -131,6 +142,33 @@ export function ClientDrawer({ isOpen, onClose, clientId, onRenewDevice, onToggl
               </div>
             )}
 
+            {/* Desglose por RFC / razón social — solo si el cliente factura a más de 1 */}
+            {!billingLoading && billing && billing.groups.length > 1 && (
+              <div className="mb-3 p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Facturación por RFC / Razón social
+                </p>
+                <div className="space-y-2">
+                  {billing.groups.map((g, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <div className="min-w-0 mr-2">
+                        <p className="text-slate-200 font-medium truncate">
+                          {g.razon_social || "Sin razón social"}
+                        </p>
+                        <p className="text-slate-500 font-mono">
+                          {g.rfc || "Sin RFC asignado"} · {g.device_count} vehículo{g.device_count !== 1 ? "s" : ""}
+                        </p>
+                      </div>
+                      <span className="text-emerald-400 font-semibold shrink-0">
+                        ${g.total.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+
             {/* Account toggle */}
             <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between mb-3">
               <div>
@@ -228,6 +266,11 @@ export function ClientDrawer({ isOpen, onClose, clientId, onRenewDevice, onToggl
                       {device.seller_name && <p>Vendedor: <span className="text-slate-300">{device.seller_name}</span></p>}
                       {device.monthly_price != null && (
                         <p>Precio: <span className="text-emerald-400 font-medium">${device.monthly_price.toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN/mes</span></p>
+                      )}
+                      {(device.rfc || device.razon_social) && (
+                        <p>Factura a: <span className="text-slate-300">
+                          {device.razon_social || "—"}{device.rfc ? ` (${device.rfc})` : ""}
+                        </span></p>
                       )}
                       <p>Vence: <span className="text-slate-300">
                         {device.expiration_date
