@@ -170,12 +170,16 @@ class UnitsMonitoring():
             for unit in units_merged:
                 database_status= unit.get("in_database")
                 in_maintenance = unit.get("in_maintenance")
-                print("IN MAINTENANCE: ",in_maintenance)
                 imei = unit.get("imei")
+                plate = unit.get("plate")
+                vehicle_name = unit.get("vehicle_name")
+                
                 if database_status and imei in active_imeis:
                     minutes_ago = unit.get("minutes_ago")
-                    signal_status = await self.validate_unit_status(warning_time_value,warning_time_unit,alert_time_value,alert_time_unit,minutes_ago,in_maintenance)
+                    unit_information =[{"imei":imei,"plate":plate,"vehicle_name":vehicle_name,"active":1,"in_maintenance":0} ]
+                    signal_status = await self.validate_unit_status(warning_time_value,warning_time_unit,alert_time_value,alert_time_unit,minutes_ago,in_maintenance,tenant_id,unit_information,db)
                     unit.update({"signal_status":signal_status})
+                    
                 else:
                     unit.update({"signal_status":"no_monitoring"})
 
@@ -188,13 +192,19 @@ class UnitsMonitoring():
             return False
     
 
-    async def validate_unit_status(self,warning_time_value,warning_time_unit,alert_time_value,alert_time_unit,minutes_ago,in_maintenance):    
+    async def validate_unit_status(self,warning_time_value,warning_time_unit,alert_time_value,alert_time_unit,minutes_ago,in_maintenance,tenant_id,unit_information,db):    
         warning_time_minutes = await UnitsMonitoring.convert_unit_to_minutes(warning_time_value,warning_time_unit)
         alert_time_minutes = await UnitsMonitoring.convert_unit_to_minutes(alert_time_value,alert_time_unit)
 
         signal_status = ""
         if in_maintenance:
             signal_status = "in_maintenance"
+            if minutes_ago < warning_time_minutes:
+                signal_status = "online"
+                maintentance_status_update = await crud_tenants.insert_monitored_devices(db,tenant_id,unit_information)
+            elif minutes_ago < warning_time_minutes:
+                signal_status = "warning"
+                maintentance_status_update = await crud_tenants.insert_monitored_devices(db,tenant_id,unit_information)
             return signal_status
         
         if minutes_ago > warning_time_minutes and minutes_ago < alert_time_minutes:

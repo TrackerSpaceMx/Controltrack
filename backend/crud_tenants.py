@@ -217,23 +217,25 @@ async def select_monitored_devices(cur, tenant_id: int) -> dict | None:
     return rows
 
 
-async def insert_monitored_devices(cur, tenant_id: int, devices: list) -> int:
+async def insert_monitored_devices(cur, tenant_id: int, devices: list) -> dict:
     if not devices:
-        return 0
-    
+        return {"success": True, "affected": 0, "processed": 0}
+
     values = [
-        (tenant_id, d["imei"], d.get("plate"), d.get("vehicle_name"),d.get("active"),d.get("in_maintenance"))
+        (tenant_id, d["imei"], d.get("plate"), d.get("vehicle_name"), d.get("active"), d.get("in_maintenance"))
         for d in devices
     ]
-    
-    await cur.executemany("""
-        INSERT INTO monitored_devices (tenant_id, imei, plate, vehicle_name,active,in_maintenance)
-        VALUES (%s, %s, %s, %s,%s,%s)
-        ON DUPLICATE KEY UPDATE
-            plate        = VALUES(plate),
-            vehicle_name = VALUES(vehicle_name),
-            active = VALUES(active),
-            in_maintenance = VALUES(in_maintenance)
-    """, values)
-    
-    return cur.rowcount
+
+    try:
+        await cur.executemany("""
+            INSERT INTO monitored_devices (tenant_id, imei, plate, vehicle_name, active, in_maintenance)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                plate          = VALUES(plate),
+                vehicle_name   = VALUES(vehicle_name),
+                active         = VALUES(active),
+                in_maintenance = VALUES(in_maintenance)
+        """, values)
+        return  True
+    except Exception as e:
+        return False

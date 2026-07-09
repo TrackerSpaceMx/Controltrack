@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import {
-  ArrowLeft, Bell, Clock, MessageCircle, Mail, Save,
+  ArrowLeft, Bell, Clock, MessageCircle, Save,
   CheckCircle, AlertTriangle, Info, Loader2, Radio, Search, X,
 } from "lucide-react";
 import { getAuthToken, api } from "../api";
@@ -13,8 +13,6 @@ export interface AlertConfig {
   warning_minutes: number;       // minutos sin señal → Advertencia
   notification_minutes: number;  // minutos sin señal → enviar notificación
   notify_whatsapp: boolean;
-  notify_email: boolean;
-  email_address: string;
   whatsapp_number: string;
 }
 
@@ -22,8 +20,6 @@ const DEFAULTS: AlertConfig = {
   warning_minutes: 15,
   notification_minutes: 60,
   notify_whatsapp: true,
-  notify_email: false,
-  email_address: "",
   whatsapp_number: "",
 };
 
@@ -164,19 +160,23 @@ function TimePicker({
 // ─── Toggle ───────────────────────────────────────────────────────────────────
 
 function Toggle({
-  checked, onChange, label, description, icon,
+  checked, onChange, label, description, icon, disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label: string;
   description: string;
   icon: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      onClick={() => { if (!disabled) onChange(!checked); }}
       className={`flex items-start gap-3 p-4 rounded-xl border text-left w-full transition-colors ${
+        disabled ? "cursor-default" : ""
+      } ${
         checked
           ? "bg-sky-500/10 border-sky-500/40"
           : "bg-slate-800/50 border-slate-700 hover:border-slate-600"
@@ -192,13 +192,15 @@ function Toggle({
         <p className="text-xs text-slate-500 mt-0.5">{description}</p>
       </div>
       {/* pill switch */}
-      <div className={`mt-0.5 w-9 h-5 rounded-full shrink-0 relative transition-colors ${
-        checked ? "bg-sky-500" : "bg-slate-700"
-      }`}>
-        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-          checked ? "left-4" : "left-0.5"
-        }`} />
-      </div>
+      {!disabled && (
+        <div className={`mt-0.5 w-9 h-5 rounded-full shrink-0 relative transition-colors ${
+          checked ? "bg-sky-500" : "bg-slate-700"
+        }`}>
+          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
+            checked ? "left-4" : "left-0.5"
+          }`} />
+        </div>
+      )}
     </button>
   );
 }
@@ -272,9 +274,7 @@ export function AlertConfigPage({ onBack }: Props) {
             warning_minutes:      toMinutes(data.warning_time_value, data.warning_time_unit),
             notification_minutes: toMinutes(data.alert_time_value,   data.alert_time_unit),
             notify_whatsapp:      channel === "whatsapp" || channel === "both",
-            notify_email:         channel === "email"    || channel === "both",
             whatsapp_number:      data.phone_number ?? "",
-            email_address:        data.email        ?? "",
           });
         }
 
@@ -358,14 +358,8 @@ export function AlertConfigPage({ onBack }: Props) {
     if (config.notification_minutes <= config.warning_minutes) {
       e.notification_minutes = "Debe ser mayor que el tiempo de advertencia";
     }
-    if (config.notify_whatsapp && !config.whatsapp_number.trim()) {
+    if (!config.whatsapp_number.trim()) {
       e.whatsapp_number = "Ingresa un número de WhatsApp";
-    }
-    if (config.notify_email && !config.email_address.trim()) {
-      e.email_address = "Ingresa un correo electrónico";
-    }
-    if (!config.notify_whatsapp && !config.notify_email) {
-      e.notify_whatsapp = "Selecciona al menos un canal de notificación";
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -383,10 +377,7 @@ export function AlertConfigPage({ onBack }: Props) {
   const handleSave = async () => {
     if (!validate()) return;
 
-    const notification_channel =
-      config.notify_whatsapp && config.notify_email ? "both"
-      : config.notify_whatsapp ? "whatsapp"
-      : "email";
+    const notification_channel = "whatsapp";
 
     const { value: warning_time_value, unit: warning_time_unit }   = minutesToValueUnit(config.warning_minutes);
     const { value: alert_time_value,   unit: alert_time_unit   }   = minutesToValueUnit(config.notification_minutes);
@@ -397,8 +388,7 @@ export function AlertConfigPage({ onBack }: Props) {
       alert_time_value,
       alert_time_unit,
       notification_channel,
-      phone_number: config.notify_whatsapp ? config.whatsapp_number.trim() : null,
-      email:        config.notify_email    ? config.email_address.trim()   : null,
+      phone_number: config.whatsapp_number.trim(),
     };
 
     setSaving(true);
@@ -441,8 +431,6 @@ export function AlertConfigPage({ onBack }: Props) {
       setSaving(false);
     }
   };
-
-  const noChannelError = errors.notify_whatsapp && !errors.whatsapp_number;
 
   return (
     <div className="flex flex-col h-full bg-slate-950 overflow-hidden">
@@ -516,63 +504,30 @@ export function AlertConfigPage({ onBack }: Props) {
 
           {/* Canal de notificación */}
           <Section title="Canal de notificación" icon={<Bell className="w-4 h-4" />}>
-            {noChannelError && (
-              <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-rose-500/10 border border-rose-500/30 rounded-lg">
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                <p className="text-xs text-rose-400">Selecciona al menos un canal.</p>
-              </div>
-            )}
-
             <div className="space-y-2">
               <Toggle
-                checked={config.notify_whatsapp}
+                checked={true}
+                disabled
                 onChange={v => set("notify_whatsapp", v)}
                 label="WhatsApp"
-                description="Notificación vía Twilio al número configurado"
+                description="Notificación vía Twilio al número configurado (siempre activo)"
                 icon={<MessageCircle className="w-4 h-4" />}
               />
-              {config.notify_whatsapp && (
-                <div className="pl-4 pr-1">
-                  <FieldLabel>Número de WhatsApp</FieldLabel>
-                  <input
-                    type="tel"
-                    placeholder="+52 55 1234 5678"
-                    value={config.whatsapp_number}
-                    onChange={e => set("whatsapp_number", e.target.value)}
-                    className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none transition-colors ${
-                      errors.whatsapp_number ? "border-rose-500" : "border-slate-700 focus:border-sky-500"
-                    }`}
-                  />
-                  {errors.whatsapp_number && (
-                    <p className="text-[11px] text-rose-400 mt-1">{errors.whatsapp_number}</p>
-                  )}
-                </div>
-              )}
-
-              <Toggle
-                checked={config.notify_email}
-                onChange={v => set("notify_email", v)}
-                label="Correo electrónico"
-                description="Envío automático al email registrado"
-                icon={<Mail className="w-4 h-4" />}
-              />
-              {config.notify_email && (
-                <div className="pl-4 pr-1">
-                  <FieldLabel>Dirección de correo</FieldLabel>
-                  <input
-                    type="email"
-                    placeholder="ejemplo@empresa.com"
-                    value={config.email_address}
-                    onChange={e => set("email_address", e.target.value)}
-                    className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none transition-colors ${
-                      errors.email_address ? "border-rose-500" : "border-slate-700 focus:border-sky-500"
-                    }`}
-                  />
-                  {errors.email_address && (
-                    <p className="text-[11px] text-rose-400 mt-1">{errors.email_address}</p>
-                  )}
-                </div>
-              )}
+              <div className="pl-4 pr-1">
+                <FieldLabel>Número de WhatsApp</FieldLabel>
+                <input
+                  type="tel"
+                  placeholder="+52 55 1234 5678"
+                  value={config.whatsapp_number}
+                  onChange={e => set("whatsapp_number", e.target.value)}
+                  className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none transition-colors ${
+                    errors.whatsapp_number ? "border-rose-500" : "border-slate-700 focus:border-sky-500"
+                  }`}
+                />
+                {errors.whatsapp_number && (
+                  <p className="text-[11px] text-rose-400 mt-1">{errors.whatsapp_number}</p>
+                )}
+              </div>
             </div>
           </Section>
 
