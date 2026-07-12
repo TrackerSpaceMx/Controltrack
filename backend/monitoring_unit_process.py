@@ -3,6 +3,11 @@ import json
 import crud_tenants
 from datetime import datetime, timezone, timedelta
 import traceback
+from dotenv import load_dotenv
+from twilio.rest import Client
+import os
+
+load_dotenv()
 
 
 class UnitsMonitoring():
@@ -178,6 +183,8 @@ class UnitsMonitoring():
                     minutes_ago = unit.get("minutes_ago")
                     unit_information =[{"imei":imei,"plate":plate,"vehicle_name":vehicle_name,"active":1,"in_maintenance":0} ]
                     signal_status = await self.validate_unit_status(warning_time_value,warning_time_unit,alert_time_value,alert_time_unit,minutes_ago,in_maintenance,tenant_id,unit_information,db)
+                    if signal_status == "no_signal":
+                        whatsapp_notification_status = await self.validate_whatsapp_notification(db,tenant_id,unit_information,unit)
                     unit.update({"signal_status":signal_status})
                     
                 else:
@@ -207,10 +214,10 @@ class UnitsMonitoring():
                 maintentance_status_update = await crud_tenants.insert_monitored_devices(db,tenant_id,unit_information)
             return signal_status
         
-        if minutes_ago > warning_time_minutes and minutes_ago < alert_time_minutes:
+        if minutes_ago >= warning_time_minutes and minutes_ago < alert_time_minutes:
             signal_status ="warning"
         
-        elif minutes_ago > alert_time_minutes:
+        elif minutes_ago >= alert_time_minutes:
             signal_status = "no_signal"
         
         else:
@@ -219,7 +226,55 @@ class UnitsMonitoring():
         return signal_status
 
 
+    async def validate_whatsapp_notification(self,db,tenant_id,unit_information,unit):
+        imei = unit.get("imei")
+        whatsapp_alert_status = await crud_tenants.select_whatsapp_alert_status(db,tenant_id,imei)
+        alert_configutation =  await crud_tenants.get_phone_number_for_alert(db,tenant_id)
+        last_signal_table = whatsapp_alert_status[0]["last_signal_at"]
+        last_whatsapp_alert_at = whatsapp_alert_status[0]["last_whatsapp_alert_at"]
+        last_signal_unit = unit.get("last_signal_at")
+        last_signal_unit_formatted = datetime.strptime(last_signal_unit,"%d/%m/%Y %H:%M:%S")
 
+        phone_number=  alert_configutation.get("phone_number")
+        if not last_signal_table and not last_whatsapp_alert_at:
+            whatsapp_sending = await self.send_whatsapp_notification(phone_number,imei,unit)
+            gmt6 = timezone(timedelta(hours=-6))
+            now = datetime.now(timezone.utc).astimezone(gmt6)
+            now = now.replace(second=0, microsecond=0)
+            formatted_now = now.strftime("%Y-%m-%d %H:%M:%S")
+            update_alert_device = await crud_tenants.update_whatsapp_alert_status(db,last_signal_unit_formatted,formatted_now,tenant_id,imei) 
+        else:
+            if last_signal_unit_formatted<= last_signal_table:
+                pass
+            else:
+                whatsapp_sending = await self.send_whatsapp_notification(phone_number,imei,unit)
+                gmt6 = timezone(timedelta(hours=-6))
+                now = datetime.now(timezone.utc).astimezone(gmt6)
+                now = now.replace(second=0, microsecond=0)
+                formatted_now = now.strftime("%Y-%m-%d %H:%M:%S")
+                update_alert_device = await crud_tenants.update_whatsapp_alert_status(db,last_signal_unit_formatted,formatted_now,tenant_id,imei)
 
     
+
+    async def send_whatsapp_notification(self,number,imei,unit):
+        try:
+            TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+            TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+            TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM")
+            twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+            last_signal_at = unit["last_signal_at"]
+            message = twilio_client.messages.create(
+                from_=TWILIO_WHATSAPP_FROM,
+                to=f"whatsapp:{number}",
+                body=(
+                    "🚨 *Alerta de dispositivo*\n\n"
+                    f"El dispositivo con IMEI *{imei}* ha perdido la comunicación.\n\n"
+                    f"🕒 Última comunicación: {last_signal_at}\n\n"
+                    "Por favor, verifica el estado del dispositivo."
+                )
+            )
+            print("Mensaje enviado, SID:", message.sid)
+
+        except Exception as err:
+            print("Error sending whatsapp notification: ",err)
 

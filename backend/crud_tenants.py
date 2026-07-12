@@ -217,6 +217,7 @@ async def select_monitored_devices(cur, tenant_id: int) -> dict | None:
     return rows
 
 
+
 async def insert_monitored_devices(cur, tenant_id: int, devices: list) -> dict:
     if not devices:
         return {"success": True, "affected": 0, "processed": 0}
@@ -239,3 +240,42 @@ async def insert_monitored_devices(cur, tenant_id: int, devices: list) -> dict:
         return  True
     except Exception as e:
         return False
+
+
+async def select_whatsapp_alert_status(cur, tenant_id: int,imei) -> dict | None:
+    await cur.execute("""
+        SELECT
+            id,
+            last_signal_at,
+            last_whatsapp_alert_at
+        FROM monitored_devices
+        WHERE tenant_id = %s AND imei = %s
+    """, (tenant_id,imei))
+
+    rows = await cur.fetchall()
+    return rows
+
+
+async def get_phone_number_for_alert(cur, tenant_id: int) -> dict | None:
+    await cur.execute("""
+        SELECT
+            id,
+            phone_number
+        FROM alert_configuration
+        WHERE tenant_id = %s
+    """, (tenant_id,))
+
+    row = await cur.fetchone()
+    return row
+
+
+
+async def update_whatsapp_alert_status(cur, last_signal_at, last_whatsapp_alert_at, tenant_id: int, imei) -> int:
+    await cur.execute("""
+        UPDATE monitored_devices SET  
+            last_signal_at = %s,
+            last_whatsapp_alert_at = %s
+        WHERE tenant_id = %s AND imei = %s
+    """, (last_signal_at, last_whatsapp_alert_at, tenant_id, imei))
+
+    return cur.rowcount

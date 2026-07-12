@@ -13,15 +13,35 @@ export interface AlertConfig {
   warning_minutes: number;       // minutos sin señal → Advertencia
   notification_minutes: number;  // minutos sin señal → enviar notificación
   notify_whatsapp: boolean;
-  whatsapp_number: string;
+  whatsapp_numero: string; // 10 dígitos: lada nacional + número, ej. "5517909188"
 }
 
 const DEFAULTS: AlertConfig = {
   warning_minutes: 15,
   notification_minutes: 60,
   notify_whatsapp: true,
-  whatsapp_number: "",
+  whatsapp_numero: "",
 };
+
+// ─── WhatsApp number helpers ────────────────────────────────────────────────
+// La lada de país (52) queda fija. El usuario solo escribe los 10 dígitos
+// (lada nacional + número local), y aquí se arma: +52 1 <10 dígitos>
+// Ej: numero "5517909188"  =>  "+5215517909188"
+function buildWhatsAppNumber(numero: string): string {
+  const cleanNumero = numero.replace(/\D/g, "");
+  if (cleanNumero.length !== 10) return "";
+  return `+521${cleanNumero}`;
+}
+
+// Intenta extraer los 10 dígitos de un número ya guardado (en cualquier formato previo).
+// Soporta: "+5215517909188", "5215517909188", "5517909188", etc.
+function parseWhatsAppNumber(full: string): string {
+  if (!full) return "";
+  let digits = full.replace(/\D/g, "");
+  if (digits.startsWith("521") && digits.length > 10) digits = digits.slice(3);
+  else if (digits.startsWith("52") && digits.length > 10) digits = digits.slice(2);
+  return digits.slice(-10);
+}
 
 // ─── Small helpers ─────────────────────────────────────────────────────────────
 
@@ -274,7 +294,7 @@ export function AlertConfigPage({ onBack }: Props) {
             warning_minutes:      toMinutes(data.warning_time_value, data.warning_time_unit),
             notification_minutes: toMinutes(data.alert_time_value,   data.alert_time_unit),
             notify_whatsapp:      channel === "whatsapp" || channel === "both",
-            whatsapp_number:      data.phone_number ?? "",
+            whatsapp_numero:      parseWhatsAppNumber(data.phone_number ?? ""),
           });
         }
 
@@ -358,8 +378,10 @@ export function AlertConfigPage({ onBack }: Props) {
     if (config.notification_minutes <= config.warning_minutes) {
       e.notification_minutes = "Debe ser mayor que el tiempo de advertencia";
     }
-    if (!config.whatsapp_number.trim()) {
-      e.whatsapp_number = "Ingresa un número de WhatsApp";
+    if (!config.whatsapp_numero.trim()) {
+      e.whatsapp_numero = "Ingresa el número de WhatsApp";
+    } else if (!/^\d{10}$/.test(config.whatsapp_numero.trim())) {
+      e.whatsapp_numero = "Debe tener 10 dígitos";
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -388,7 +410,7 @@ export function AlertConfigPage({ onBack }: Props) {
       alert_time_value,
       alert_time_unit,
       notification_channel,
-      phone_number: config.whatsapp_number.trim(),
+      phone_number: buildWhatsAppNumber(config.whatsapp_numero),
     };
 
     setSaving(true);
@@ -515,17 +537,33 @@ export function AlertConfigPage({ onBack }: Props) {
               />
               <div className="pl-4 pr-1">
                 <FieldLabel>Número de WhatsApp</FieldLabel>
-                <input
-                  type="tel"
-                  placeholder="+52 55 1234 5678"
-                  value={config.whatsapp_number}
-                  onChange={e => set("whatsapp_number", e.target.value)}
-                  className={`w-full px-3 py-2 bg-slate-800 border rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none transition-colors ${
-                    errors.whatsapp_number ? "border-rose-500" : "border-slate-700 focus:border-sky-500"
-                  }`}
-                />
-                {errors.whatsapp_number && (
-                  <p className="text-[11px] text-rose-400 mt-1">{errors.whatsapp_number}</p>
+                <div className="flex gap-2">
+                  <div className="w-16 shrink-0 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-sm text-slate-400 text-center select-none">
+                    52
+                  </div>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="5517909188"
+                    maxLength={10}
+                    value={config.whatsapp_numero}
+                    onChange={e => set("whatsapp_numero", e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    className={`flex-1 px-3 py-2 bg-slate-800 border rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none transition-colors ${
+                      errors.whatsapp_numero ? "border-rose-500" : "border-slate-700 focus:border-sky-500"
+                    }`}
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">10 dígitos (lada + número), ej. 5517909188</p>
+                {errors.whatsapp_numero && (
+                  <p className="text-[11px] text-rose-400 mt-1">{errors.whatsapp_numero}</p>
+                )}
+                {config.whatsapp_numero.length === 10 && (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Se enviará como{" "}
+                    <span className="text-sky-400 font-medium">
+                      {buildWhatsAppNumber(config.whatsapp_numero)}
+                    </span>
+                  </p>
                 )}
               </div>
             </div>
