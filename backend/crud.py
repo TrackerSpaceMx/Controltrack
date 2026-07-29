@@ -95,6 +95,7 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
 
     trackers_map = {t["ras_ras_id"]: t for t in trackers_data}
     synced = 0
+    seen_imeis = set()  # IMEIs que SÍ vinieron en este events/all (para detectar desinstalados)
 
     for tracker_id, event in events_map.items():
         tracker = trackers_map.get(tracker_id, {})
@@ -121,6 +122,8 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
 
         if not imei:
             continue
+
+        seen_imeis.add(str(imei))
 
         workshop_info = workshop_map.get(str(imei), {})
         ins_id   = workshop_info.get("ras_ins_id")
@@ -176,6 +179,32 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
             await cur.execute("UPDATE devices SET status=%s WHERE id=%s", (new_status, row["id"]))
 
         synced += 1
+
+    # ── Marcar como desactivados los dispositivos que ya NO aparecen en events/all ──
+    # Si Fulltrack reporta 0 eventos, es casi seguro un error/timeout de la API y no
+    # que "se desinstalaron todos los GPS". Por seguridad, en ese caso NO se toca nada.
+    if seen_imeis:
+        if tenant_id is not None:
+            await cur.execute(
+                "SELECT id, imei FROM devices WHERE tenant_id=%s AND status != 'deactivated'",
+                (tenant_id,)
+            )
+        else:
+            await cur.execute(
+                "SELECT id, imei FROM devices WHERE status != 'deactivated'"
+            )
+        current_rows = await cur.fetchall()
+
+        missing_ids = [r["id"] for r in current_rows if str(r["imei"]) not in seen_imeis]
+
+        if missing_ids:
+            placeholders = ",".join(["%s"] * len(missing_ids))
+            # Solo se actualiza la columna status. Ningún otro dato (cliente, placa,
+            # vencimiento, precio, RFC, campos personalizados, etc.) se modifica ni se borra.
+            await cur.execute(
+                f"UPDATE devices SET status='deactivated' WHERE id IN ({placeholders})",
+                missing_ids
+            )
 
     return synced
 
@@ -633,7 +662,7 @@ async def get_seller_stats(cur, tenant_id=None) -> list:
             SUM(CASE WHEN status='expiring'    THEN 1 ELSE 0 END) as expiring,
             SUM(CASE WHEN status='expired'     THEN 1 ELSE 0 END) as expired,
             SUM(CASE WHEN status='deactivated' THEN 1 ELSE 0 END) as deactivated,
-            SUM(COALESCE(monthly_price, 0)) as monthly_revenue
+            SUM(CASE WHEN status != 'deactivated' THEN COALESCE(monthly_price, 0) ELSE 0 END) as monthly_revenue
         FROM devices
         {tenant_filter}
         GROUP BY COALESCE(seller_name, 'Sin asignar')
