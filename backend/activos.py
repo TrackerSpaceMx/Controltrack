@@ -140,13 +140,18 @@ async def obtener_activos(db, tenant_id: int, ft_apikey: str, ft_secretkey: str,
     cache_posiciones = await crud_tenants.get_last_positions(db, tenant_id)
 
     resultado = []
+    posiciones_a_guardar = []
     for item in raw_data:
         normalizado = normalizar_vehiculo(item, cache_posiciones)
         nueva = normalizado.pop("_nueva_posicion_valida", None)
         if nueva:
-            vid, lat, lon, fecha_gps = nueva
-            await crud_tenants.upsert_last_position(db, tenant_id, vid, lat, lon, fecha_gps)
+            posiciones_a_guardar.append(nueva)
         resultado.append(normalizado)
+
+    # Una sola escritura en bloque para las ~1000+ posiciones, en vez de una
+    # por vehículo (mucho menos carga sobre MySQL).
+    if posiciones_a_guardar:
+        await crud_tenants.upsert_last_positions_bulk(db, tenant_id, posiciones_a_guardar)
 
     return resultado
 

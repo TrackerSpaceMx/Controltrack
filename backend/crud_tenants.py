@@ -74,6 +74,18 @@ async def upsert_last_position(cur, tenant_id: int, vehiculo_id: str, lat, lon, 
         ON DUPLICATE KEY UPDATE lat=VALUES(lat), lon=VALUES(lon), fecha_gps=VALUES(fecha_gps)
     """, (tenant_id, str(vehiculo_id), str(lat), str(lon), fecha_gps))
 
+async def upsert_last_positions_bulk(cur, tenant_id: int, updates: list):
+    """updates: lista de (vehiculo_id, lat, lon, fecha_gps). Un solo round-trip
+    a MySQL en vez de uno por vehículo (importante con flotas de 1000+)."""
+    if not updates:
+        return
+    values = [(tenant_id, str(vid), str(lat), str(lon), fecha_gps) for vid, lat, lon, fecha_gps in updates]
+    await cur.executemany("""
+        INSERT INTO activos_last_position (tenant_id, vehiculo_id, lat, lon, fecha_gps)
+        VALUES (%s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE lat=VALUES(lat), lon=VALUES(lon), fecha_gps=VALUES(fecha_gps)
+    """, values)
+
 # ─── Geocodificación (caché de direcciones por coordenada) ────────────────────
 
 async def get_cached_address(cur, tenant_id: int, lat, lon) -> Optional[str]:
