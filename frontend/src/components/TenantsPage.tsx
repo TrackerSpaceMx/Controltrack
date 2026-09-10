@@ -24,7 +24,7 @@ export function TenantsPage() {
 
   const [showModal, setShowModal] = useState(false);
   const [editing,   setEditing]   = useState<Tenant | null>(null);
-  const [form, setForm] = useState({ name: "", ft_apikey: "", ft_secretkey: "", active: true });
+  const [form, setForm] = useState({ name: "", ft_apikey: "", ft_secretkey: "", active: true, activos_enabled: false });
   const [saving, setSaving] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
 
@@ -39,13 +39,13 @@ export function TenantsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", ft_apikey: "", ft_secretkey: "", active: true });
+    setForm({ name: "", ft_apikey: "", ft_secretkey: "", active: true, activos_enabled: false });
     setShowModal(true);
   };
 
   const openEdit = (t: Tenant) => {
     setEditing(t);
-    setForm({ name: t.name, ft_apikey: t.ft_apikey, ft_secretkey: t.ft_secretkey, active: t.active });
+    setForm({ name: t.name, ft_apikey: t.ft_apikey, ft_secretkey: t.ft_secretkey, active: t.active, activos_enabled: !!t.activos_enabled });
     setShowModal(true);
   };
 
@@ -108,6 +108,11 @@ export function TenantsPage() {
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${
                     t.active ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" : "bg-slate-700 text-slate-400 border-slate-600"
                   }`}>{t.active ? "Activo" : "Inactivo"}</span>
+                  {t.activos_enabled && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-sky-500/10 text-sky-400 border-sky-500/30">
+                      📍 Activos (mapa)
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-4 mt-1">
                   <p className="text-xs text-slate-500 font-mono truncate max-w-[200px]">Key: {t.ft_apikey}</p>
@@ -177,6 +182,16 @@ export function TenantsPage() {
                 </button>
               </div>
             )}
+            <div className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">
+              <div>
+                <span className="text-sm text-slate-300">Módulo Activos (mapa / posición GPS)</span>
+                <p className="text-[11px] text-slate-500">Genera costo de geocodificación. Actívalo solo si el cliente lo pidió.</p>
+              </div>
+              <button onClick={() => setForm(f => ({ ...f, activos_enabled: !f.activos_enabled }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${form.activos_enabled ? "bg-sky-500" : "bg-slate-700"}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${form.activos_enabled ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+            </div>
           </div>
           <div className="px-6 py-4 border-t border-slate-800 flex justify-end gap-3">
             <button onClick={() => setShowModal(false)}

@@ -29,18 +29,18 @@ async def get_tenant(cur, tenant_id: int) -> Optional[dict]:
     row = await cur.fetchone()
     return dict(row) if row else None
 
-async def create_tenant(cur, name: str, ft_apikey: str, ft_secretkey: str) -> int:
+async def create_tenant(cur, name: str, ft_apikey: str, ft_secretkey: str, activos_enabled: bool = False) -> int:
     await cur.execute("""
-        INSERT INTO tenants (name, ft_apikey, ft_secretkey)
-        VALUES (%s, %s, %s)
-    """, (name, ft_apikey, ft_secretkey))
+        INSERT INTO tenants (name, ft_apikey, ft_secretkey, activos_enabled)
+        VALUES (%s, %s, %s, %s)
+    """, (name, ft_apikey, ft_secretkey, int(activos_enabled)))
     await cur.execute("SELECT LAST_INSERT_ID() as id")
     row = await cur.fetchone()
     return row["id"]
 
 async def update_tenant(cur, tenant_id: int, data: dict) -> bool:
     fields = {k: v for k, v in data.items() if v is not None and k in
-              ["name", "ft_apikey", "ft_secretkey", "active"]}
+              ["name", "ft_apikey", "ft_secretkey", "active", "activos_enabled"]}
     if not fields:
         return True
     set_clause = ", ".join(f"{k}=%s" for k in fields)
@@ -53,6 +53,26 @@ async def update_tenant(cur, tenant_id: int, data: dict) -> bool:
 async def delete_tenant(cur, tenant_id: int) -> bool:
     await cur.execute("DELETE FROM tenants WHERE id=%s", (tenant_id,))
     return True
+
+# ─── Activos (caché de última posición GPS válida por tenant) ─────────────────
+# Reemplaza el data/ultima_posicion_valida.json de Holkan-Services: aquí sí es
+# seguro con varios workers de gunicorn escribiendo al mismo tiempo.
+
+async def get_last_positions(cur, tenant_id: int) -> dict:
+    """Devuelve {vehiculo_id: {lat, lon, fecha_gps}} para un tenant."""
+    await cur.execute(
+        "SELECT vehiculo_id, lat, lon, fecha_gps FROM activos_last_position WHERE tenant_id=%s",
+        (tenant_id,)
+    )
+    rows = await cur.fetchall()
+    return {r["vehiculo_id"]: {"lat": r["lat"], "lon": r["lon"], "fecha_gps": r["fecha_gps"]} for r in rows}
+
+async def upsert_last_position(cur, tenant_id: int, vehiculo_id: str, lat, lon, fecha_gps: str):
+    await cur.execute("""
+        INSERT INTO activos_last_position (tenant_id, vehiculo_id, lat, lon, fecha_gps)
+        VALUES (%s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE lat=VALUES(lat), lon=VALUES(lon), fecha_gps=VALUES(fecha_gps)
+    """, (tenant_id, str(vehiculo_id), str(lat), str(lon), fecha_gps))
 
 # ─── Users ────────────────────────────────────────────────────────────────────
 

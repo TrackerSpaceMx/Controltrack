@@ -6,13 +6,14 @@ import { RenewalModal } from "../components/RenewalModal";
 import { DeviceDetailsModal } from "../components/DeviceDetailsModal";
 import { ExportModal } from "../components/ExportModal";
 import { ChartsView } from "./ChartsView";
-import { api, DeviceRecord, DashboardStats, CONTRACT_LABELS } from "../api";
+import { api, adminApi, DeviceRecord, DashboardStats, CONTRACT_LABELS, ActivoRecord } from "../api";
 import {
   Search, Download, Play, Pause, Calendar, Activity,
   AlertTriangle, XCircle, MapPin, RefreshCw, Loader2,
   ChevronLeft, ChevronRight, TrendingUp, Clock, BarChart2,
   LayoutDashboard, ChevronDown, ChevronUp, Cpu, Tag,
   Car, Palette, Gauge, Edit2, CheckSquare, Square, Settings,
+  Navigation, BatteryMedium, Satellite, Lock, Unlock, Gauge as GaugeIcon,
 } from "lucide-react";
 
 interface DashboardProps { onLogout: () => void; session?: import('../api').SessionInfo; }
@@ -91,10 +92,24 @@ function Pagination({ page, total, pageSize, onChange }: {
 
 // ─── Expanded row ─────────────────────────────────────────────────────────────
 
-function ExpandedDeviceRow({ device, colSpan }: { device: DeviceRecord; colSpan: number }) {
+function ExpandedDeviceRow({ device, colSpan, activo }: { device: DeviceRecord; colSpan: number; activo?: ActivoRecord }) {
   const [vehicleDetail, setVehicleDetail] = useState<VehicleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [customFields,  setCustomFields]  = useState(device.custom_fields ?? []);
+  const [direccion,     setDireccion]     = useState<string | null>(null);
+  const [loadingDireccion, setLoadingDireccion] = useState(false);
+
+  // Geocodificación bajo demanda: solo se pide cuando esta fila se expande
+  // (no para todos los vehículos de golpe), igual que en Holkan-Services.
+  useEffect(() => {
+    if (!activo || activo.latitud == null || activo.longitud == null) return;
+    setLoadingDireccion(true);
+    adminApi.geocodeActivo(activo.latitud, activo.longitud)
+      .then(res => setDireccion(res.direccion))
+      .catch(() => setDireccion(null))
+      .finally(() => setLoadingDireccion(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activo?.vehiculo_id]);
 
   // Re-fetch custom fields when expanding (in case list endpoint didn't include them)
   useEffect(() => {
@@ -155,6 +170,55 @@ function ExpandedDeviceRow({ device, colSpan }: { device: DeviceRecord; colSpan:
             ) : null}
           </div>
 
+          {/* Posición GPS en vivo (módulo Activos) — solo aparece si el
+              tenant tiene el módulo habilitado y hay match por IMEI */}
+          {activo && (
+            <div className="flex flex-wrap gap-6 pt-2 pb-1 border-t border-slate-700/40">
+              <div className="flex items-start gap-2 min-w-[180px] max-w-[320px]">
+                <div className="w-6 h-6 rounded bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                    Ubicación {activo.posicion_obsoleta && (
+                      <span className="text-amber-400 normal-case font-normal">(última posición válida conocida)</span>
+                    )}
+                  </p>
+                  {loadingDireccion ? (
+                    <p className="text-sm text-slate-500 flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Buscando dirección…
+                    </p>
+                  ) : (
+                    <p className="text-sm text-white truncate" title={direccion ?? ""}>
+                      {direccion ?? (activo.latitud != null ? `${activo.latitud}, ${activo.longitud}` : "Sin posición")}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <InfoChip icon={<BatteryMedium className="w-3.5 h-3.5 text-lime-400" />} bg="bg-lime-500/15" label="Batería" value={`${activo.bateria_v}V (${activo.porcentaje_bateria}%)`} />
+              <InfoChip icon={<Satellite className="w-3.5 h-3.5 text-sky-400" />} bg="bg-sky-500/15" label="Satélites" value={String(activo.satelites)} />
+              <InfoChip icon={<Car className="w-3.5 h-3.5 text-violet-400" />} bg="bg-violet-500/15" label="Producto" value={activo.producto} />
+              <InfoChip
+                icon={activo.bloqueado ? <Lock className="w-3.5 h-3.5 text-rose-400" /> : <Unlock className="w-3.5 h-3.5 text-emerald-400" />}
+                bg={activo.bloqueado ? "bg-rose-500/15" : "bg-emerald-500/15"}
+                label="Bloqueado" value={activo.bloqueado ? "Sí" : "No"} />
+              <InfoChip icon={<span className="text-slate-300 text-xs">👤</span>} bg="bg-slate-700/50" label="Conductor" value={activo.conductor} />
+              <InfoChip icon={<GaugeIcon className="w-3.5 h-3.5 text-amber-400" />} bg="bg-amber-500/15" label="Odómetro" value={String(activo.odometro)} />
+              <InfoChip icon={<Clock className="w-3.5 h-3.5 text-sky-400" />} bg="bg-sky-500/15" label="Horómetro" value={activo.horometro} mono />
+              {activo.latitud != null && (
+                <InfoChip icon={<Navigation className="w-3.5 h-3.5 text-emerald-400" />} bg="bg-emerald-500/15" label="Latitud" value={String(activo.latitud)} mono />
+              )}
+              {activo.longitud != null && (
+                <InfoChip icon={<Navigation className="w-3.5 h-3.5 text-emerald-400" />} bg="bg-emerald-500/15" label="Longitud" value={String(activo.longitud)} mono />
+              )}
+              <InfoChip icon={<Activity className="w-3.5 h-3.5 text-sky-400" />} bg="bg-sky-500/15" label="Velocidad" value={`${activo.velocidad} km/h`} />
+              <InfoChip
+                icon={<span className={`text-xs ${activo.ignicion_on ? "text-emerald-400" : "text-rose-400"}`}>⏻</span>}
+                bg={activo.ignicion_on ? "bg-emerald-500/15" : "bg-rose-500/15"}
+                label="Ignición" value={activo.ignicion_on ? "Encendido" : "Apagado"} />
+            </div>
+          )}
+
           {/* Campos personalizados */}
           {customFields.length > 0 && (
             <div className="flex flex-wrap gap-3 pt-2 border-t border-slate-700/40">
@@ -173,11 +237,11 @@ function InfoChip({ icon, bg, label, value, mono }: {
   icon: React.ReactNode; bg: string; label: string; value: string; mono?: boolean;
 }) {
   return (
-    <div className="flex items-start gap-2 min-w-[120px]">
+    <div className="flex items-start gap-2 min-w-[120px] max-w-[240px]">
       <div className={`w-6 h-6 rounded ${bg} flex items-center justify-center shrink-0 mt-0.5`}>{icon}</div>
-      <div>
+      <div className="min-w-0">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">{label}</p>
-        <p className={`text-sm text-white ${mono ? "font-mono" : ""}`}>{value}</p>
+        <p className={`text-sm text-white truncate ${mono ? "font-mono" : ""}`} title={value}>{value}</p>
       </div>
     </div>
   );
@@ -256,6 +320,21 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
   const [stats,      setStats]      = useState<DashboardStats>({
     total: 0, active: 0, expiring: 0, expired: 0, deactivated: 0, expiring_this_month: 0,
   });
+
+  // Activos (posiciones GPS) — solo se pide una vez, y solo si el tenant lo
+  // tiene habilitado. El join con devices es por IMEI.
+  const [activosByImei, setActivosByImei] = useState<Record<string, ActivoRecord>>({});
+
+  useEffect(() => {
+    if (!session?.activos_enabled) return;
+    adminApi.getActivos()
+      .then(res => {
+        const map: Record<string, ActivoRecord> = {};
+        for (const a of res.data) if (a.imei) map[a.imei] = a;
+        setActivosByImei(map);
+      })
+      .catch(() => {}); // si falla (ej. módulo apagado a mitad de sesión), simplemente no se muestra
+  }, [session?.activos_enabled]);
 
   const [allClients, setAllClients] = useState<{ id: string; name: string }[]>([]);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -754,7 +833,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                           </button>
                         </th>
                         {["Cliente","Vehículo","IMEI","Modelo GPS","Contrato","Vendedor","Fecha Alta","Vencimiento","Tiempo restante","Estado","Acciones"].map(h => (
-                          <th key={h} className="px-3 py-2.5 font-medium text-slate-400 border-b border-slate-800 truncate">{h}</th>
+                          <th key={h} title={h} className="px-3 py-2.5 font-medium text-slate-400 border-b border-slate-800 truncate">{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -784,7 +863,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                               </td>
                               <td className="px-3 py-2.5 font-medium text-white truncate" title={device.client_name}>{device.client_name}</td>
                               <td className="px-3 py-2.5 text-slate-300 truncate" title={device.device_name ?? device.plate ?? ""}>{device.device_name ?? device.plate ?? "—"}</td>
-                              <td className="px-3 py-2.5 text-slate-400 font-mono truncate">{device.imei}</td>
+                              <td className="px-3 py-2.5 text-slate-400 font-mono truncate" title={device.imei}>{device.imei}</td>
                               <td className="px-3 py-2.5 text-slate-400 truncate" title={device.model ?? ""}>{device.model ?? "—"}</td>
                               <td className="px-3 py-2.5">
                                 {device.contract_type ? (() => {
@@ -800,9 +879,9 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                                 })() : <span className="text-slate-600">—</span>}
                               </td>
                               <td className="px-3 py-2.5 text-slate-400 truncate" title={device.seller_name ?? ""}>{device.seller_name ?? "—"}</td>
-                              <td className="px-3 py-2.5 text-slate-400 truncate">{device.registration_date ?? "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-400 truncate" title={device.registration_date ?? ""}>{device.registration_date ?? "—"}</td>
                               <td className="px-3 py-2.5">
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1" title={device.expiration_date ? new Date(device.expiration_date + "T12:00:00").toLocaleDateString("es-MX") : "Sin fecha"}>
                                   <Calendar className="w-3 h-3 opacity-40 shrink-0" />
                                   <span className="truncate">
                                     {device.expiration_date
@@ -811,7 +890,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                                   </span>
                                 </div>
                               </td>
-                              <td className="px-3 py-2.5"><span className={`text-xs ${dl.cls}`}>{dl.text}</span></td>
+                              <td className="px-3 py-2.5" title={dl.text}><span className={`text-xs ${dl.cls}`}>{dl.text}</span></td>
                               <td className="px-3 py-2.5"><StatusBadge status={device.status as any} /></td>
                               {/* Acciones — ocultas para viewer */}
                               <td className="px-3 py-2.5">
@@ -846,7 +925,9 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                                 </div>
                               </td>
                             </tr>
-                            {isExpanded && <ExpandedDeviceRow device={device} colSpan={COL_COUNT} />}
+                            {isExpanded && (
+                              <ExpandedDeviceRow device={device} colSpan={COL_COUNT} activo={activosByImei[device.imei]} />
+                            )}
                           </React.Fragment>
                         );
                       })}

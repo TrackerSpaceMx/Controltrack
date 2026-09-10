@@ -350,6 +350,7 @@ export interface SessionInfo {
   tenant_id: number | null;
   tenant_name: string | null;
   is_superadmin: boolean;
+  activos_enabled?: boolean;
 }
 
 export interface Tenant {
@@ -358,8 +359,33 @@ export interface Tenant {
   ft_apikey: string;
   ft_secretkey: string;
   active: boolean;
+  activos_enabled?: boolean;
   user_count: number;
   created_at?: string;
+}
+
+// ─── Activos (posiciones GPS en vivo) ─────────────────────────────────────────
+
+export interface ActivoRecord {
+  vehiculo_id: string;
+  imei: string;
+  ultima_comunicacion: string;
+  fecha_gps: string;
+  gps_ok: boolean;
+  velocidad: number;
+  ignicion_on: boolean;
+  bloqueado: boolean;
+  latitud: string | number | null;
+  longitud: string | number | null;
+  posicion_obsoleta: boolean;
+  fecha_posicion: string;
+  bateria_v: string;
+  porcentaje_bateria: number;
+  satelites: number;
+  producto: string;
+  conductor: string;
+  odometro: string;
+  horometro: string;
 }
 
 export interface AppUser {
@@ -459,4 +485,12 @@ export const adminApi = {
     ),
   getWhatsAppHistory: () =>
     authReq<WhatsAppHistoryRecord[]>("/api/whatsapp/history"),
+
+  // Activos (posiciones GPS) — solo responde 200 si el tenant tiene activos_enabled
+  getActivos: () =>
+    authReq<{ status: boolean; total: number; data: ActivoRecord[] }>("/api/activos"),
+  geocodeActivo: (lat: string | number, lon: string | number) =>
+    authReq<{ status: boolean; direccion: string }>(
+      `/api/activos/geocode?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}`
+    ),
 };

@@ -162,12 +162,14 @@ class TenantCreate(BaseModel):
     name: str
     ft_apikey: str
     ft_secretkey: str
+    activos_enabled: bool = False
 
 class TenantUpdate(BaseModel):
     name: Optional[str] = None
     ft_apikey: Optional[str] = None
     ft_secretkey: Optional[str] = None
     active: Optional[bool] = None
+    activos_enabled: Optional[bool] = None
 
 class TenantResponse(BaseModel):
     id: int
@@ -175,6 +177,7 @@ class TenantResponse(BaseModel):
     ft_apikey: str
     ft_secretkey: str
     active: bool
+    activos_enabled: Optional[bool] = False
     user_count: Optional[int] = 0
     created_at: Optional[str] = None
 
@@ -221,6 +224,7 @@ class LoginResponseV2(BaseModel):
     tenant_id: Optional[int] = None
     tenant_name: Optional[str] = None
     is_superadmin: bool = False
+    activos_enabled: bool = False
 
 
 # ─── WhatsApp ─────────────────────────────────────────────────────────────────
@@ -255,4 +259,3 @@ class RegisterAlertConfiguration(BaseModel):
     phone_number : Optional[str] = None
     email : Optional[str] = None
     devices : List[dict]
-

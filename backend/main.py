@@ -8,7 +8,7 @@ from typing import Optional, List
 from dotenv import load_dotenv
 import json
 
-from database import get_db, init_db, migrate_db
+from database import get_db, init_db, migrate_db, migrate_tenants
 from auth import authenticate_user, get_current_session, require_superadmin, revoke_session
 from models import (
     DeviceResponse, DeviceListResponse, ToggleStatusRequest, BulkToggleRequest,
@@ -121,6 +121,7 @@ async def lifespan(app: FastAPI):
     import asyncio
     await init_db()
     await migrate_db()
+    await migrate_tenants()
     if FULLTRACK_APIKEY and FULLTRACK_SECRET:
         try:
             print("Sincronizando con Fulltrack...")
@@ -629,6 +630,7 @@ from models import LoginResponseV2, TenantCreate, TenantUpdate, TenantResponse, 
     UserCreate, UserUpdate, UserResponse, WhatsAppSendRequest
 import crud_tenants
 import whatsapp as wa
+import activos as activos_mod
 
 @app.post("/api/v2/login", response_model=LoginResponseV2)
 async def login_v2(body: LoginRequest, db=Depends(get_db)):
@@ -641,6 +643,7 @@ async def login_v2(body: LoginRequest, db=Depends(get_db)):
         tenant_id=result.get("tenant_id"),
         tenant_name=result.get("tenant_name"),
         is_superadmin=result.get("role") == "superadmin",
+        activos_enabled=result.get("activos_enabled", False),
     )
 
 @app.post("/api/v2/logout")
@@ -657,7 +660,7 @@ async def list_tenants(db=Depends(get_db), session=Depends(require_superadmin)):
 
 @app.post("/api/tenants", status_code=201)
 async def create_tenant(body: TenantCreate, db=Depends(get_db), session=Depends(require_superadmin)):
-    tenant_id = await crud_tenants.create_tenant(db, body.name, body.ft_apikey, body.ft_secretkey)
+    tenant_id = await crud_tenants.create_tenant(db, body.name, body.ft_apikey, body.ft_secretkey, body.activos_enabled)
     return {"success": True, "id": tenant_id}
 
 @app.put("/api/tenants/{tenant_id}")
@@ -669,6 +672,48 @@ async def update_tenant(tenant_id: int, body: TenantUpdate, db=Depends(get_db), 
 async def delete_tenant(tenant_id: int, db=Depends(get_db), session=Depends(require_superadmin)):
     await crud_tenants.delete_tenant(db, tenant_id)
     return {"success": True}
+
+@app.get("/api/activos")
+async def get_activos(
+    x_impersonate_tenant: Optional[int] = Header(default=None, alias="X-Impersonate-Tenant"),
+    session: dict = Depends(get_current_session), db=Depends(get_db),
+):
+    """Posiciones GPS en vivo. SOLO responde si el tenant tiene activos_enabled=1
+    (así el costo de mapas/geocodificación queda contenido a quien lo pidió)."""
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="No hay tenant asociado a la sesión")
+
+    tenant = await crud_tenants.get_tenant(db, tenant_id)
+    if not tenant or not tenant.get("activos_enabled"):
+        raise HTTPException(status_code=403, detail="Módulo de Activos no habilitado para este cliente")
+
+    try:
+        data = await activos_mod.obtener_activos(
+            db, tenant_id, tenant["ft_apikey"], tenant["ft_secretkey"]
+        )
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Error consultando la API de rastreo: {e}")
+
+    return {"status": True, "total": len(data), "data": data}
+
+
+@app.get("/api/activos/geocode")
+async def get_activos_geocode(
+    lat: str, lon: str,
+    x_impersonate_tenant: Optional[int] = Header(default=None, alias="X-Impersonate-Tenant"),
+    session: dict = Depends(get_current_session), db=Depends(get_db),
+):
+    """Geocodificación inversa bajo demanda (solo cuando se expande una fila
+    en el frontend), mismo criterio de permiso que /api/activos."""
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+    tenant = await crud_tenants.get_tenant(db, tenant_id) if tenant_id else None
+    if not tenant or not tenant.get("activos_enabled"):
+        raise HTTPException(status_code=403, detail="Módulo de Activos no habilitado para este cliente")
+
+    direccion = await activos_mod.geocodificar(lat, lon)
+    return {"status": True, "direccion": direccion}
+
 
 @app.post("/api/tenants/{tenant_id}/sync")
 async def sync_tenant(tenant_id: int, db=Depends(get_db), session=Depends(require_superadmin)):

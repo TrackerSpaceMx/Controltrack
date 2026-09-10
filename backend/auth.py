@@ -54,7 +54,8 @@ async def authenticate_user(username: str, password: str, cur) -> dict:
     # Tenant user
     await cur.execute("""
         SELECT u.id, u.tenant_id, u.username, u.password, u.role, u.active,
-               t.name as tenant_name, t.ft_apikey, t.ft_secretkey, t.active as tenant_active
+               t.name as tenant_name, t.ft_apikey, t.ft_secretkey, t.active as tenant_active,
+               t.activos_enabled
         FROM users u
         JOIN tenants t ON t.id = u.tenant_id
         WHERE u.username = %s
@@ -76,6 +77,7 @@ async def authenticate_user(username: str, password: str, cur) -> dict:
         "username":    username,
         "ft_apikey":   row["ft_apikey"],
         "ft_secretkey": row["ft_secretkey"],
+        "activos_enabled": bool(row.get("activos_enabled")),
     }
 
 # ── FastAPI dependency ──────────────────────────────────────────────────────

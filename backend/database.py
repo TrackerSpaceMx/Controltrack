@@ -172,6 +172,19 @@ async def init_db():
             """)
 
 
+            # ── Caché de última posición GPS válida (módulo "Activos") ──────
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS activos_last_position (
+                    tenant_id    INT NOT NULL,
+                    vehiculo_id  VARCHAR(50) NOT NULL,
+                    lat          VARCHAR(50),
+                    lon          VARCHAR(50),
+                    fecha_gps    VARCHAR(50),
+                    updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (tenant_id, vehiculo_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS monitored_devices (
                     id                     INT AUTO_INCREMENT PRIMARY KEY,
@@ -191,6 +204,21 @@ async def init_db():
 
             await conn.commit()
             print("Base de datos inicializada")
+
+async def migrate_tenants():
+    """Migraciones aditivas sobre la tabla tenants. Igual patrón que migrate_db():
+    ADD COLUMN envuelto en try/except, nunca DROP ni UPDATE masivo."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            try:
+                await cur.execute(
+                    "ALTER TABLE tenants ADD COLUMN activos_enabled TINYINT(1) DEFAULT 0"
+                )
+                print("Columna tenants.activos_enabled agregada (default 0, no afecta tenants existentes)")
+            except Exception:
+                pass  # ya existe
+            await conn.commit()
 
 async def migrate_db():
     pool = await get_pool()
