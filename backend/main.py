@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 import json
 
 from database import get_db, init_db, migrate_db, migrate_tenants
-from auth import authenticate_user, get_current_session, require_superadmin, revoke_session
+from auth import authenticate_user, get_current_session, require_superadmin, revoke_session, get_session
 from models import (
     DeviceResponse, DeviceListResponse, ToggleStatusRequest, BulkToggleRequest,
     LoginRequest, LoginResponse, SyncResponse, DashboardStats,
@@ -477,6 +477,19 @@ async def get_client_billing_by_rfc(client_fulltrack_id: str, db=Depends(get_db)
 
 # ─── Export ───────────────────────────────────────────────────────────────────
 
+async def get_export_session(
+    authorization: str = Header(default=""),
+    token: Optional[str] = None,
+) -> dict:
+    tok = authorization[7:] if authorization.startswith("Bearer ") else authorization
+    if not tok and token:
+        tok = token
+    session = get_session(tok)
+    if not session:
+        raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+    return session
+
+
 @app.get("/api/export")
 async def export_data(
     format:               str = Query("csv", regex="^(csv|xlsx|pdf)$"),
@@ -486,12 +499,41 @@ async def export_data(
     expire_from:          Optional[str] = None,
     expire_to:            Optional[str] = None,
     expiring_days:        Optional[int] = None,
+    x_impersonate_tenant: Optional[int] = Header(default=None, alias="X-Impersonate-Tenant"),
+    session:              dict = Depends(get_export_session),
     db=Depends(get_db)
 ):
+    tenant_id = _effective_tenant(session, x_impersonate_tenant)
+
     rows = await crud.get_export_data(
         db, status_filter, seller_filter, contract_type_filter,
-        expire_from, expire_to, expiring_days
+        expire_from, expire_to, expiring_days, tenant_id=tenant_id
     )
+
+    # Si el tenant tiene el módulo Activos habilitado, se agregan columnas de
+    # posición GPS en vivo (join por IMEI, igual que en el panel expandido).
+    tenant_activos_enabled = False
+    if tenant_id:
+        tenant = await crud_tenants.get_tenant(db, tenant_id)
+        if tenant and tenant.get("activos_enabled"):
+            tenant_activos_enabled = True
+            try:
+                activos_data = await activos_mod.obtener_activos(
+                    db, tenant_id, tenant["ft_apikey"], tenant["ft_secretkey"]
+                )
+                activos_by_imei = {a["imei"]: a for a in activos_data if a.get("imei")}
+            except Exception:
+                activos_by_imei = {}
+            for row in rows:
+                a = activos_by_imei.get(row.get("imei"))
+                if a:
+                    row["_activo_ultima_comunicacion"] = a.get("ultima_comunicacion")
+                    row["_activo_velocidad"]           = a.get("velocidad")
+                    row["_activo_ignicion"]             = "Encendido" if a.get("ignicion_on") else "Apagado"
+                    row["_activo_bateria"]               = f"{a.get('bateria_v')}V ({a.get('porcentaje_bateria')}%)"
+                    row["_activo_satelites"]             = a.get("satelites")
+                    row["_activo_latitud"]               = a.get("latitud")
+                    row["_activo_longitud"]              = a.get("longitud")
 
     headers_map = {
         "client_name":   "Cliente",
@@ -511,6 +553,18 @@ async def export_data(
         "status":        "Estado",
         "rfc":           "RFC",
     }
+
+    if tenant_activos_enabled:
+        headers_map.update({
+            "_activo_ultima_comunicacion": "Última comunicación GPS",
+            "_activo_velocidad":           "Velocidad (km/h)",
+            "_activo_ignicion":            "Ignición",
+            "_activo_bateria":             "Batería",
+            "_activo_satelites":           "Satélites",
+            "_activo_latitud":             "Latitud",
+            "_activo_longitud":            "Longitud",
+        })
+
     col_keys = list(headers_map.keys())
     col_labels = list(headers_map.values())
 
@@ -592,12 +646,17 @@ async def export_data(
         # Solo columnas principales para PDF (ancho limitado)
         pdf_keys   = ["client_name","device_name","plate","imei","contract_type","seller_name","expiration_date","days_until_expiration","status"]
         pdf_labels = ["Cliente","Vehículo","Placa","IMEI","Contrato","Vendedor","Vencimiento","Días","Estado"]
+        col_widths = [120, 100, 60, 110, 80, 90, 75, 40, 70]
+
+        if tenant_activos_enabled:
+            pdf_keys   += ["_activo_velocidad", "_activo_ignicion", "_activo_ultima_comunicacion"]
+            pdf_labels += ["Vel. (km/h)", "Ignición", "Últ. GPS"]
+            col_widths += [55, 55, 90]
 
         data = [pdf_labels]
         for row in rows:
             data.append([fmt(row, k) for k in pdf_keys])
 
-        col_widths = [120, 100, 60, 110, 80, 90, 75, 40, 70]
         t = Table(data, colWidths=col_widths, repeatRows=1)
         t.setStyle(TableStyle([
             ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1e3a5f")),
