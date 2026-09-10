@@ -200,3 +200,21 @@ async def geocodificar(lat: str, lon: str) -> str:
             pass
 
     return "Dirección no disponible"
+
+
+async def geocodificar_cacheado(db, tenant_id: int, lat, lon) -> str:
+    """Igual que geocodificar(), pero primero revisa la caché en MySQL por
+    coordenada exacta. Evita golpear el proveedor de mapas de nuevo para
+    vehículos que no se han movido entre una exportación y otra (o entre
+    varios vehículos en la misma ubicación)."""
+    if lat is None or lon is None:
+        return "Sin posición"
+
+    cached = await crud_tenants.get_cached_address(db, tenant_id, lat, lon)
+    if cached:
+        return cached
+
+    address = await geocodificar(lat, lon)
+    if address and address != "Dirección no disponible":
+        await crud_tenants.save_cached_address(db, tenant_id, lat, lon, address)
+    return address

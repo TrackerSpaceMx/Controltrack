@@ -185,6 +185,21 @@ async def init_db():
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
 
+            # ── Caché de geocodificación inversa (dirección por coordenada) ──
+            # Clave por coordenada exacta, no por vehículo: si dos vehículos
+            # están en el mismo lugar (ej. patio/base), comparten la dirección
+            # ya geocodificada y no se vuelve a llamar al proveedor de mapas.
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS geocode_cache (
+                    tenant_id  INT NOT NULL,
+                    lat        VARCHAR(50) NOT NULL,
+                    lon        VARCHAR(50) NOT NULL,
+                    address    VARCHAR(500),
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (tenant_id, lat, lon)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS monitored_devices (
                     id                     INT AUTO_INCREMENT PRIMARY KEY,

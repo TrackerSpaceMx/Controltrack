@@ -74,6 +74,23 @@ async def upsert_last_position(cur, tenant_id: int, vehiculo_id: str, lat, lon, 
         ON DUPLICATE KEY UPDATE lat=VALUES(lat), lon=VALUES(lon), fecha_gps=VALUES(fecha_gps)
     """, (tenant_id, str(vehiculo_id), str(lat), str(lon), fecha_gps))
 
+# ─── Geocodificación (caché de direcciones por coordenada) ────────────────────
+
+async def get_cached_address(cur, tenant_id: int, lat, lon) -> Optional[str]:
+    await cur.execute(
+        "SELECT address FROM geocode_cache WHERE tenant_id=%s AND lat=%s AND lon=%s",
+        (tenant_id, str(lat), str(lon))
+    )
+    row = await cur.fetchone()
+    return row["address"] if row else None
+
+async def save_cached_address(cur, tenant_id: int, lat, lon, address: str):
+    await cur.execute("""
+        INSERT INTO geocode_cache (tenant_id, lat, lon, address)
+        VALUES (%s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE address=VALUES(address)
+    """, (tenant_id, str(lat), str(lon), address))
+
 # ─── Users ────────────────────────────────────────────────────────────────────
 
 async def get_users(cur, tenant_id: Optional[int] = None) -> list:
