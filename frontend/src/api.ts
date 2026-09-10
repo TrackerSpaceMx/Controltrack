@@ -337,6 +337,7 @@ export const api = {
     if (params.expire_to)            qs.set("expire_to",            params.expire_to);
     if (params.expiring_days !== undefined) qs.set("expiring_days", String(params.expiring_days));
     if (_authToken) qs.set("token", _authToken);
+    qs.set("_t", String(Date.now()));
     return `${BASE}/api/export?${qs}`;
   },
 };

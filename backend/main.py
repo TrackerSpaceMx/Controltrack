@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Query, Response, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import asyncio
 import httpx
 import os
 import io
@@ -535,6 +536,45 @@ async def export_data(
                     row["_activo_latitud"]               = a.get("latitud")
                     row["_activo_longitud"]              = a.get("longitud")
 
+            # Direcciones: primero se revisa la caché (secuencial, rápido, sin
+            # red) y solo las coordenadas que faltan se piden en paralelo al
+            # proveedor de mapas (máx. 8 a la vez, sin tocar la base de datos
+            # durante ese paso — un cursor de MySQL no soporta uso concurrente).
+            # La primera exportación del día puede tardar con cuentas grandes
+            # (ej. 1000+ vehículos de Holkan); las siguientes son casi
+            # instantáneas porque reusan geocode_cache.
+            coords_needed: dict = {}
+            for row in rows:
+                lat, lon = row.get("_activo_latitud"), row.get("_activo_longitud")
+                if lat is not None and lon is not None:
+                    coords_needed[(str(lat), str(lon))] = None
+
+            for (c_lat, c_lon) in list(coords_needed.keys()):
+                cached = await crud_tenants.get_cached_address(db, tenant_id, c_lat, c_lon)
+                if cached:
+                    coords_needed[(c_lat, c_lon)] = cached
+
+            missing_coords = [c for c, addr in coords_needed.items() if addr is None]
+            if missing_coords:
+                sem = asyncio.Semaphore(8)
+
+                async def _fetch(coord):
+                    async with sem:
+                        addr = await activos_mod.geocodificar(coord[0], coord[1])
+                    return coord, addr
+
+                for coord, addr in await asyncio.gather(*(_fetch(c) for c in missing_coords)):
+                    coords_needed[coord] = addr
+                    if addr and addr != "Dirección no disponible":
+                        await crud_tenants.save_cached_address(db, tenant_id, coord[0], coord[1], addr)
+
+            for row in rows:
+                lat, lon = row.get("_activo_latitud"), row.get("_activo_longitud")
+                if lat is not None and lon is not None:
+                    row["_activo_direccion"] = coords_needed.get((str(lat), str(lon))) or "Dirección no disponible"
+                else:
+                    row["_activo_direccion"] = ""
+
     headers_map = {
         "client_name":   "Cliente",
         "device_name":   "Vehículo",
@@ -561,6 +601,7 @@ async def export_data(
             "_activo_ignicion":            "Ignición",
             "_activo_bateria":             "Batería",
             "_activo_satelites":           "Satélites",
+            "_activo_direccion":           "Ubicación",
             "_activo_latitud":             "Latitud",
             "_activo_longitud":            "Longitud",
         })
@@ -584,12 +625,15 @@ async def export_data(
     if format == "csv":
         lines = [",".join(col_labels)]
         for row in rows:
-            lines.append(",".join(f'"{fmt(row, k)}"' for k in col_keys))
+            lines.append(",".join(f'"{fmt(row, k).replace(chr(34), chr(34)*2)}"' for k in col_keys))
         content = "\n".join(lines).encode("utf-8-sig")
         return Response(
             content=content,
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=controltrack_export.csv"}
+            headers={
+    "Content-Disposition": "attachment; filename=controltrack_export.csv",
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+}
         )
 
     elif format == "xlsx":
@@ -627,60 +671,116 @@ async def export_data(
         return Response(
             content=buf.read(),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=controltrack_export.xlsx"}
+            headers={
+    "Content-Disposition": "attachment; filename=controltrack_export.xlsx",
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+}
         )
 
     elif format == "pdf":
         try:
             from reportlab.lib.pagesizes import landscape, A4
             from reportlab.lib import colors
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         except ImportError:
             raise HTTPException(status_code=500, detail="reportlab no instalado. Ejecuta: pip install reportlab")
 
+        from datetime import datetime as dt_now
         buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=20, rightMargin=20, topMargin=30, bottomMargin=20)
         styles = getSampleStyleSheet()
-
-        # Solo columnas principales para PDF (ancho limitado)
-        pdf_keys   = ["client_name","device_name","plate","imei","contract_type","seller_name","expiration_date","days_until_expiration","status"]
-        pdf_labels = ["Cliente","Vehículo","Placa","IMEI","Contrato","Vendedor","Vencimiento","Días","Estado"]
-        col_widths = [120, 100, 60, 110, 80, 90, 75, 40, 70]
+        title = Paragraph("<b>ControlTrack — Reporte de dispositivos</b>", styles["Title"])
+        subtitle = Paragraph(f"Generado: {dt_now.now().strftime('%d/%m/%Y %H:%M')} | Total: {len(rows)} registros", styles["Normal"])
 
         if tenant_activos_enabled:
-            pdf_keys   += ["_activo_velocidad", "_activo_ignicion", "_activo_ultima_comunicacion"]
-            pdf_labels += ["Vel. (km/h)", "Ignición", "Últ. GPS"]
-            col_widths += [55, 55, 90]
+            # Ficha apilada por vehículo (etiqueta: valor). Con las columnas de
+            # Activos (y sobre todo la dirección, que es texto largo) una tabla
+            # horizontal ya no cabe sin cortarse — este formato no tiene ese
+            # límite porque cada dato va en su propia fila, envuelto si hace falta.
+            doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=24, rightMargin=24, topMargin=30, bottomMargin=24)
 
-        data = [pdf_labels]
-        for row in rows:
-            data.append([fmt(row, k) for k in pdf_keys])
+            label_style = ParagraphStyle("label", parent=styles["Normal"], fontSize=8,
+                                          textColor=colors.HexColor("#475569"), fontName="Helvetica-Bold")
+            value_style = ParagraphStyle("value", parent=styles["Normal"], fontSize=8,
+                                          textColor=colors.HexColor("#0f172a"))
 
-        t = Table(data, colWidths=col_widths, repeatRows=1)
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1e3a5f")),
-            ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-            ("FONTSIZE",   (0,0), (-1,0), 9),
-            ("FONTSIZE",   (0,1), (-1,-1), 8),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f1f5f9")]),
-            ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#cbd5e1")),
-            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("LEFTPADDING",  (0,0), (-1,-1), 4),
-            ("RIGHTPADDING", (0,0), (-1,-1), 4),
-            ("TOPPADDING",   (0,0), (-1,-1), 3),
-            ("BOTTOMPADDING",(0,0), (-1,-1), 3),
-        ]))
+            card_fields = [
+                ("Cliente",                 "client_name"),
+                ("Vehículo",                "device_name"),
+                ("Placa",                   "plate"),
+                ("IMEI",                    "imei"),
+                ("Contrato",                "contract_type"),
+                ("Vendedor",                "seller_name"),
+                ("Vencimiento",             "expiration_date"),
+                ("Estado",                  "status"),
+                ("Velocidad",               "_activo_velocidad_fmt"),
+                ("Ignición",                "_activo_ignicion"),
+                ("Últ. comunicación GPS",   "_activo_ultima_comunicacion"),
+                ("Ubicación",               "_activo_direccion"),
+                ("Coordenadas",             "_activo_coordenadas"),
+            ]
 
-        title = Paragraph("<b>ControlTrack — Reporte de dispositivos</b>", styles["Title"])
-        from datetime import datetime as dt_now
-        subtitle = Paragraph(f"Generado: {dt_now.now().strftime('%d/%m/%Y %H:%M')} | Total: {len(rows)} registros", styles["Normal"])
-        doc.build([title, Spacer(1, 8), subtitle, Spacer(1, 12), t])
+            story = [title, Spacer(1, 6), subtitle, Spacer(1, 10)]
+            for row in rows:
+                lat, lon = row.get("_activo_latitud"), row.get("_activo_longitud")
+                row["_activo_coordenadas"] = f"{lat}, {lon}" if lat is not None else "—"
+                vel = row.get("_activo_velocidad")
+                row["_activo_velocidad_fmt"] = f"{vel} km/h" if vel is not None else "—"
+
+                card_rows = [
+                    [Paragraph(f"{label}:", label_style), Paragraph(fmt(row, key) or "—", value_style)]
+                    for label, key in card_fields
+                ]
+                card = Table(card_rows, colWidths=[110, 380])
+                card.setStyle(TableStyle([
+                    ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+                    ("TOPPADDING",    (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("BOX",           (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                    ("BACKGROUND",    (0, 0), (0, -1), colors.HexColor("#f8fafc")),
+                ]))
+                story.append(KeepTogether([card, Spacer(1, 10)]))
+
+            doc.build(story)
+
+        else:
+            # Tabla clásica de siempre — a los tenants sin Activos les cabe bien.
+            doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=20, rightMargin=20, topMargin=30, bottomMargin=20)
+
+            pdf_keys   = ["client_name","device_name","plate","imei","contract_type","seller_name","expiration_date","days_until_expiration","status"]
+            pdf_labels = ["Cliente","Vehículo","Placa","IMEI","Contrato","Vendedor","Vencimiento","Días","Estado"]
+            col_widths = [120, 100, 60, 110, 80, 90, 75, 40, 70]
+
+            data = [pdf_labels]
+            for row in rows:
+                data.append([fmt(row, k) for k in pdf_keys])
+
+            t = Table(data, colWidths=col_widths, repeatRows=1)
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1e3a5f")),
+                ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
+                ("FONTSIZE",   (0,0), (-1,0), 9),
+                ("FONTSIZE",   (0,1), (-1,-1), 8),
+                ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f1f5f9")]),
+                ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#cbd5e1")),
+                ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+                ("LEFTPADDING",  (0,0), (-1,-1), 4),
+                ("RIGHTPADDING", (0,0), (-1,-1), 4),
+                ("TOPPADDING",   (0,0), (-1,-1), 3),
+                ("BOTTOMPADDING",(0,0), (-1,-1), 3),
+            ]))
+            doc.build([title, Spacer(1, 8), subtitle, Spacer(1, 12), t])
+
         buf.seek(0)
         return Response(
             content=buf.read(),
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=controltrack_export.pdf"}
+            headers={
+    "Content-Disposition": "attachment; filename=controltrack_export.pdf",
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+}
         )
 
 # ─── NEW: Auth multi-tenant ────────────────────────────────────────────────────
@@ -770,7 +870,7 @@ async def get_activos_geocode(
     if not tenant or not tenant.get("activos_enabled"):
         raise HTTPException(status_code=403, detail="Módulo de Activos no habilitado para este cliente")
 
-    direccion = await activos_mod.geocodificar(lat, lon)
+    direccion = await activos_mod.geocodificar_cacheado(db, tenant_id, lat, lon)
     return {"status": True, "direccion": direccion}
 
 
