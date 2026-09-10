@@ -740,10 +740,13 @@ async def get_invoice_preview(cur, client_fulltrack_id: str) -> dict:
 # ─── Export data ──────────────────────────────────────────────────────────────
 
 async def get_export_data(cur, status_filter=None, seller_filter=None, contract_type_filter=None,
-                          expire_from=None, expire_to=None, expiring_days=None) -> list:
+                          expire_from=None, expire_to=None, expiring_days=None, tenant_id=None) -> list:
     sql = "SELECT * FROM devices WHERE 1=1"
     params = []
 
+    if tenant_id is not None:
+        sql += " AND tenant_id = %s"
+        params.append(tenant_id)
     if status_filter and status_filter != "all":
         sql += " AND status = %s"
         params.append(status_filter)
