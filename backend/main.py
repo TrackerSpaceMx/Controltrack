@@ -500,6 +500,11 @@ async def export_data(
     expire_from:          Optional[str] = None,
     expire_to:            Optional[str] = None,
     expiring_days:        Optional[int] = None,
+    search_client:        Optional[str] = None,
+    search_imei:          Optional[str] = None,
+    search_device:        Optional[str] = None,
+    search_rfc:           Optional[str] = None,
+    search_custom:        Optional[str] = None,
     x_impersonate_tenant: Optional[int] = Header(default=None, alias="X-Impersonate-Tenant"),
     session:              dict = Depends(get_export_session),
     db=Depends(get_db)
@@ -508,7 +513,9 @@ async def export_data(
 
     rows = await crud.get_export_data(
         db, status_filter, seller_filter, contract_type_filter,
-        expire_from, expire_to, expiring_days, tenant_id=tenant_id
+        expire_from, expire_to, expiring_days, tenant_id=tenant_id,
+        search_client=search_client, search_imei=search_imei, search_device=search_device,
+        search_rfc=search_rfc, search_custom=search_custom
     )
 
     # Si el tenant tiene el módulo Activos habilitado, se agregan columnas de

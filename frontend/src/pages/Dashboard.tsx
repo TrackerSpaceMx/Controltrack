@@ -987,7 +987,23 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
         }}
       />
 
-      <ExportModal isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} />
+      <ExportModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        currentFilters={{
+          search_client:        searchClient   || undefined,
+          search_imei:          searchImei     || undefined,
+          search_device:        searchDevice   || undefined,
+          search_rfc:           searchRfc      || undefined,
+          search_custom:        searchCustom   || undefined,
+          seller_filter:        sellerFilter   || undefined,
+          status_filter:        statusFilter   !== "all" ? statusFilter : undefined,
+          contract_type_filter: contractFilter || undefined,
+          expiring_days:        expiringDays,
+          expire_from:          expireFrom     || undefined,
+          expire_to:            expireTo       || undefined,
+        }}
+      />
     </div>
   );
 }

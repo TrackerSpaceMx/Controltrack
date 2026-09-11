@@ -1,10 +1,23 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, Download, FileText, Table, File } from "lucide-react";
 import { api, CONTRACT_OPTIONS } from "../api";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  currentFilters?: {
+    search_client?: string;
+    search_imei?: string;
+    search_device?: string;
+    search_rfc?: string;
+    search_custom?: string;
+    seller_filter?: string;
+    status_filter?: string;
+    contract_type_filter?: string;
+    expiring_days?: number;
+    expire_from?: string;
+    expire_to?: string;
+  };
 }
 
 const STATUS_OPTIONS = [
@@ -46,15 +59,36 @@ const FORMAT_CONFIG: Record<Format, { label: string; icon: React.ReactNode; colo
   },
 };
 
-export function ExportModal({ isOpen, onClose }: Props) {
+export function ExportModal({ isOpen, onClose, currentFilters }: Props) {
   const [format,       setFormat]       = useState<Format>("xlsx");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [contractType, setContractType] = useState("");
-  const [expiringDays, setExpiringDays] = useState("");
-  const [expireFrom,   setExpireFrom]   = useState("");
-  const [expireTo,     setExpireTo]     = useState("");
+  const [statusFilter, setStatusFilter] = useState(currentFilters?.status_filter ?? "");
+  const [contractType, setContractType] = useState(currentFilters?.contract_type_filter ?? "");
+  const [expiringDays, setExpiringDays] = useState(currentFilters?.expiring_days ? String(currentFilters.expiring_days) : "");
+  const [expireFrom,   setExpireFrom]   = useState(currentFilters?.expire_from ?? "");
+  const [expireTo,     setExpireTo]     = useState(currentFilters?.expire_to ?? "");
+
+  // Se reinician cada vez que se abre el modal, para reflejar los filtros que
+  // el usuario tiene puestos EN ESE MOMENTO en la tabla (y no los de la vez
+  // pasada que abrió el modal).
+  useEffect(() => {
+    if (!isOpen) return;
+    setStatusFilter(currentFilters?.status_filter ?? "");
+    setContractType(currentFilters?.contract_type_filter ?? "");
+    setExpiringDays(currentFilters?.expiring_days ? String(currentFilters.expiring_days) : "");
+    setExpireFrom(currentFilters?.expire_from ?? "");
+    setExpireTo(currentFilters?.expire_to ?? "");
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null;
+
+  const filtersSummary = [
+    currentFilters?.search_client  && `Cliente: "${currentFilters.search_client}"`,
+    currentFilters?.search_imei    && `IMEI: "${currentFilters.search_imei}"`,
+    currentFilters?.search_device  && `Vehículo/Placa: "${currentFilters.search_device}"`,
+    currentFilters?.search_rfc     && `RFC/Razón social: "${currentFilters.search_rfc}"`,
+    currentFilters?.search_custom  && `Campo personalizado: "${currentFilters.search_custom}"`,
+    currentFilters?.seller_filter  && `Vendedor: "${currentFilters.seller_filter}"`,
+  ].filter(Boolean) as string[];
 
   const handleExport = () => {
     const url = api.getExportUrl({
@@ -64,6 +98,12 @@ export function ExportModal({ isOpen, onClose }: Props) {
       expiring_days:        expiringDays     ? Number(expiringDays) : undefined,
       expire_from:          expireFrom       || undefined,
       expire_to:            expireTo         || undefined,
+      search_client:        currentFilters?.search_client,
+      search_imei:          currentFilters?.search_imei,
+      search_device:        currentFilters?.search_device,
+      search_rfc:           currentFilters?.search_rfc,
+      search_custom:        currentFilters?.search_custom,
+      seller_filter:        currentFilters?.seller_filter,
     });
     window.open(url, "_blank");
     onClose();
@@ -84,6 +124,15 @@ export function ExportModal({ isOpen, onClose }: Props) {
         </div>
 
         <div className="p-6 space-y-5">
+
+          {filtersSummary.length > 0 && (
+            <div className="bg-sky-500/10 border border-sky-500/30 rounded-lg px-3 py-2">
+              <p className="text-[11px] font-semibold text-sky-300 uppercase tracking-wider mb-1">
+                Se exportará con los filtros activos en la tabla
+              </p>
+              <p className="text-xs text-sky-200/90 leading-relaxed">{filtersSummary.join(" · ")}</p>
+            </div>
+          )}
 
           {/* Formato */}
           <div>

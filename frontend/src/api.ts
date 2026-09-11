@@ -328,6 +328,11 @@ export const api = {
     expire_from?: string;
     expire_to?: string;
     expiring_days?: number;
+    search_client?: string;
+    search_imei?: string;
+    search_device?: string;
+    search_rfc?: string;
+    search_custom?: string;
   }) => {
     const qs = new URLSearchParams({ format: params.format });
     if (params.status_filter)        qs.set("status_filter",        params.status_filter);
@@ -336,8 +341,13 @@ export const api = {
     if (params.expire_from)          qs.set("expire_from",          params.expire_from);
     if (params.expire_to)            qs.set("expire_to",            params.expire_to);
     if (params.expiring_days !== undefined) qs.set("expiring_days", String(params.expiring_days));
+    if (params.search_client)  qs.set("search_client",  params.search_client);
+    if (params.search_imei)    qs.set("search_imei",    params.search_imei);
+    if (params.search_device)  qs.set("search_device",  params.search_device);
+    if (params.search_rfc)     qs.set("search_rfc",     params.search_rfc);
+    if (params.search_custom)  qs.set("search_custom",  params.search_custom);
     if (_authToken) qs.set("token", _authToken);
-    qs.set("_t", String(Date.now()));
+    qs.set("_t", String(Date.now())); // anti-caché: cada clic genera una URL distinta
     return `${BASE}/api/export?${qs}`;
   },
 };
