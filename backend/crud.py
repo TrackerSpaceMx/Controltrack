@@ -740,13 +740,24 @@ async def get_invoice_preview(cur, client_fulltrack_id: str) -> dict:
 # ─── Export data ──────────────────────────────────────────────────────────────
 
 async def get_export_data(cur, status_filter=None, seller_filter=None, contract_type_filter=None,
-                          expire_from=None, expire_to=None, expiring_days=None, tenant_id=None) -> list:
+                          expire_from=None, expire_to=None, expiring_days=None, tenant_id=None,
+                          search_client=None, search_imei=None, search_device=None,
+                          search_rfc=None, search_custom=None) -> list:
     sql = "SELECT * FROM devices WHERE 1=1"
     params = []
 
     if tenant_id is not None:
         sql += " AND tenant_id = %s"
         params.append(tenant_id)
+    if search_client:
+        sql += " AND client_name LIKE %s"
+        params.append(f"%{search_client}%")
+    if search_imei:
+        sql += " AND imei LIKE %s"
+        params.append(f"%{search_imei}%")
+    if search_device:
+        sql += " AND (device_name LIKE %s OR plate LIKE %s OR sim LIKE %s)"
+        params.extend([f"%{search_device}%", f"%{search_device}%", f"%{search_device}%"])
     if status_filter and status_filter != "all":
         sql += " AND status = %s"
         params.append(status_filter)
@@ -756,6 +767,15 @@ async def get_export_data(cur, status_filter=None, seller_filter=None, contract_
     if contract_type_filter:
         sql += " AND contract_type = %s"
         params.append(contract_type_filter)
+    if search_rfc:
+        sql += " AND (rfc LIKE %s OR razon_social LIKE %s)"
+        params.extend([f"%{search_rfc}%", f"%{search_rfc}%"])
+    if search_custom:
+        sql += """ AND id IN (
+            SELECT device_id FROM custom_fields
+            WHERE field_label LIKE %s OR field_value LIKE %s
+        )"""
+        params.extend([f"%{search_custom}%", f"%{search_custom}%"])
     if expiring_days is not None:
         today = date.today()
         limit = today + timedelta(days=int(expiring_days))
