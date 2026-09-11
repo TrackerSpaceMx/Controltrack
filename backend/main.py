@@ -533,6 +533,7 @@ async def export_data(
                     row["_activo_ignicion"]             = "Encendido" if a.get("ignicion_on") else "Apagado"
                     row["_activo_bateria"]               = f"{a.get('bateria_v')}V ({a.get('porcentaje_bateria')}%)"
                     row["_activo_satelites"]             = a.get("satelites")
+                    row["_activo_bloqueado"]             = "Sí" if a.get("bloqueado") else "No"
                     row["_activo_latitud"]               = a.get("latitud")
                     row["_activo_longitud"]              = a.get("longitud")
 
@@ -601,6 +602,7 @@ async def export_data(
             "_activo_ignicion":            "Ignición",
             "_activo_bateria":             "Batería",
             "_activo_satelites":           "Satélites",
+            "_activo_bloqueado":           "Bloqueado",
             "_activo_direccion":           "Ubicación",
             "_activo_latitud":             "Latitud",
             "_activo_longitud":            "Longitud",
@@ -631,9 +633,9 @@ async def export_data(
             content=content,
             media_type="text/csv",
             headers={
-    "Content-Disposition": "attachment; filename=controltrack_export.csv",
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-}
+                "Content-Disposition": "attachment; filename=controltrack_export.csv",
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+            }
         )
 
     elif format == "xlsx":
@@ -672,16 +674,16 @@ async def export_data(
             content=buf.read(),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-    "Content-Disposition": "attachment; filename=controltrack_export.xlsx",
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-}
+                "Content-Disposition": "attachment; filename=controltrack_export.xlsx",
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+            }
         )
 
     elif format == "pdf":
         try:
-            from reportlab.lib.pagesizes import landscape, A4
+            from reportlab.lib.pagesizes import landscape, A4, A3
             from reportlab.lib import colors
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         except ImportError:
             raise HTTPException(status_code=500, detail="reportlab no instalado. Ejecuta: pip install reportlab")
@@ -693,57 +695,53 @@ async def export_data(
         subtitle = Paragraph(f"Generado: {dt_now.now().strftime('%d/%m/%Y %H:%M')} | Total: {len(rows)} registros", styles["Normal"])
 
         if tenant_activos_enabled:
-            # Ficha apilada por vehículo (etiqueta: valor). Con las columnas de
-            # Activos (y sobre todo la dirección, que es texto largo) una tabla
-            # horizontal ya no cabe sin cortarse — este formato no tiene ese
-            # límite porque cada dato va en su propia fila, envuelto si hace falta.
-            doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=24, rightMargin=24, topMargin=30, bottomMargin=24)
+            # Misma tabla que CSV/Excel (las 3 exportaciones muestran exactamente
+            # las mismas columnas). Con ~25 columnas no cabe en A4 ni siquiera
+            # horizontal, así que se usa A3 horizontal, letra pequeña, y cada
+            # celda es un Paragraph que envuelve el texto en vez de cortarlo
+            # (clave para "Ubicación", que puede ser una dirección larga).
+            doc = SimpleDocTemplate(buf, pagesize=landscape(A3), leftMargin=16, rightMargin=16, topMargin=24, bottomMargin=16)
 
-            label_style = ParagraphStyle("label", parent=styles["Normal"], fontSize=8,
-                                          textColor=colors.HexColor("#475569"), fontName="Helvetica-Bold")
-            value_style = ParagraphStyle("value", parent=styles["Normal"], fontSize=8,
-                                          textColor=colors.HexColor("#0f172a"))
+            header_style = ParagraphStyle("h", parent=styles["Normal"], fontSize=6.5,
+                                           textColor=colors.white, fontName="Helvetica-Bold", leading=8)
+            cell_style   = ParagraphStyle("c", parent=styles["Normal"], fontSize=6.5,
+                                           textColor=colors.HexColor("#0f172a"), leading=8)
 
-            card_fields = [
-                ("Cliente",                 "client_name"),
-                ("Vehículo",                "device_name"),
-                ("Placa",                   "plate"),
-                ("IMEI",                    "imei"),
-                ("Contrato",                "contract_type"),
-                ("Vendedor",                "seller_name"),
-                ("Vencimiento",             "expiration_date"),
-                ("Estado",                  "status"),
-                ("Velocidad",               "_activo_velocidad_fmt"),
-                ("Ignición",                "_activo_ignicion"),
-                ("Últ. comunicación GPS",   "_activo_ultima_comunicacion"),
-                ("Ubicación",               "_activo_direccion"),
-                ("Coordenadas",             "_activo_coordenadas"),
-            ]
+            # Ancho por columna (pt) — más espacio a las que suelen traer texto
+            # largo (Cliente, Vehículo, Vendedor, Ubicación); el resto compacto.
+            width_by_key = {
+                "client_name": 68, "device_name": 60, "plate": 42, "imei": 62,
+                "sim": 48, "model": 46, "contract_type": 40, "seller_name": 55,
+                "installer_name": 55, "install_date": 42, "registration_date": 42,
+                "expiration_date": 42, "days_until_expiration": 30, "monthly_price": 42,
+                "status": 38, "rfc": 46,
+                "_activo_ultima_comunicacion": 58, "_activo_velocidad": 34,
+                "_activo_ignicion": 38, "_activo_bateria": 44, "_activo_satelites": 28,
+                "_activo_bloqueado": 34, "_activo_direccion": 130,
+                "_activo_latitud": 40, "_activo_longitud": 40,
+            }
+            col_raw_widths = [width_by_key.get(k, 45) for k in col_keys]
+            printable_width = landscape(A3)[0] - 32  # ancho de página menos los 2 márgenes de 16pt
+            total_raw = sum(col_raw_widths)
+            scale = min(1.0, printable_width / total_raw)  # solo encoge, nunca agranda de más
+            col_widths = [w * scale for w in col_raw_widths]
 
-            story = [title, Spacer(1, 6), subtitle, Spacer(1, 10)]
+            data = [[Paragraph(label, header_style) for label in col_labels]]
             for row in rows:
-                lat, lon = row.get("_activo_latitud"), row.get("_activo_longitud")
-                row["_activo_coordenadas"] = f"{lat}, {lon}" if lat is not None else "—"
-                vel = row.get("_activo_velocidad")
-                row["_activo_velocidad_fmt"] = f"{vel} km/h" if vel is not None else "—"
+                data.append([Paragraph(fmt(row, k) or "—", cell_style) for k in col_keys])
 
-                card_rows = [
-                    [Paragraph(f"{label}:", label_style), Paragraph(fmt(row, key) or "—", value_style)]
-                    for label, key in card_fields
-                ]
-                card = Table(card_rows, colWidths=[110, 380])
-                card.setStyle(TableStyle([
-                    ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING",   (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
-                    ("TOPPADDING",    (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                    ("BOX",           (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-                    ("BACKGROUND",    (0, 0), (0, -1), colors.HexColor("#f8fafc")),
-                ]))
-                story.append(KeepTogether([card, Spacer(1, 10)]))
-
-            doc.build(story)
+            t = Table(data, colWidths=col_widths, repeatRows=1)
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1e3a5f")),
+                ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f1f5f9")]),
+                ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#cbd5e1")),
+                ("VALIGN", (0,0), (-1,-1), "TOP"),
+                ("LEFTPADDING",  (0,0), (-1,-1), 2),
+                ("RIGHTPADDING", (0,0), (-1,-1), 2),
+                ("TOPPADDING",   (0,0), (-1,-1), 2),
+                ("BOTTOMPADDING",(0,0), (-1,-1), 2),
+            ]))
+            doc.build([title, Spacer(1, 6), subtitle, Spacer(1, 10), t])
 
         else:
             # Tabla clásica de siempre — a los tenants sin Activos les cabe bien.
@@ -751,13 +749,13 @@ async def export_data(
 
             pdf_keys   = ["client_name","device_name","plate","imei","contract_type","seller_name","expiration_date","days_until_expiration","status"]
             pdf_labels = ["Cliente","Vehículo","Placa","IMEI","Contrato","Vendedor","Vencimiento","Días","Estado"]
-            col_widths = [120, 100, 60, 110, 80, 90, 75, 40, 70]
+            pdf_widths = [120, 100, 60, 110, 80, 90, 75, 40, 70]
 
             data = [pdf_labels]
             for row in rows:
                 data.append([fmt(row, k) for k in pdf_keys])
 
-            t = Table(data, colWidths=col_widths, repeatRows=1)
+            t = Table(data, colWidths=pdf_widths, repeatRows=1)
             t.setStyle(TableStyle([
                 ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1e3a5f")),
                 ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
@@ -778,9 +776,9 @@ async def export_data(
             content=buf.read(),
             media_type="application/pdf",
             headers={
-    "Content-Disposition": "attachment; filename=controltrack_export.pdf",
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-}
+                "Content-Disposition": "attachment; filename=controltrack_export.pdf",
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+            }
         )
 
 # ─── NEW: Auth multi-tenant ────────────────────────────────────────────────────
