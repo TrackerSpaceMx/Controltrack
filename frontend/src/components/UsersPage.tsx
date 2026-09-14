@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { adminApi, AppUser, Tenant } from "../api";
-import { Plus, Edit2, Trash2, Loader2, Users, X, Eye, EyeOff } from "lucide-react";
+import { adminApi, AppUser, Tenant, TenantClient } from "../api";
+import { Plus, Edit2, Trash2, Loader2, Users, X, Eye, EyeOff, Building2, CheckSquare, Square } from "lucide-react";
 
 const ROLE_CFG: Record<string, { label: string; cls: string }> = {
   admin:    { label: "Admin",     cls: "bg-violet-500/10 text-violet-400 border-violet-500/30" },
@@ -42,7 +42,12 @@ export function UsersPage({ isSuperAdmin, sessionTenantId }: Props) {
   const [form, setForm] = useState({
     tenant_id: sessionTenantId ?? 0,
     username: "", password: "", full_name: "", role: "operator", active: true,
+    client_scope: [] as string[],
   });
+
+  const [tenantClients,        setTenantClients]        = useState<TenantClient[]>([]);
+  const [loadingTenantClients, setLoadingTenantClients]  = useState(false);
+  const [clientSearch,         setClientSearch]          = useState("");
 
   const load = async () => {
     setLoading(true); setError("");
@@ -58,23 +63,59 @@ export function UsersPage({ isSuperAdmin, sessionTenantId }: Props) {
 
   useEffect(() => { load(); }, [filterTenant]);
 
+  const loadTenantClients = async (tenantId: number) => {
+    if (!tenantId) { setTenantClients([]); return; }
+    setLoadingTenantClients(true);
+    try { setTenantClients(await adminApi.getTenantClients(tenantId)); }
+    catch { setTenantClients([]); }
+    finally { setLoadingTenantClients(false); }
+  };
+
   const openCreate = () => {
     setEditing(null);
-    setForm({ tenant_id: sessionTenantId ?? (tenants[0]?.id ?? 0), username: "", password: "", full_name: "", role: "operator", active: true });
+    const tid = sessionTenantId ?? (tenants[0]?.id ?? 0);
+    setForm({ tenant_id: tid, username: "", password: "", full_name: "", role: "operator", active: true, client_scope: [] });
+    setClientSearch("");
     setShowPwd(false); setShowModal(true);
+    loadTenantClients(tid);
   };
 
   const openEdit = (u: AppUser) => {
     setEditing(u);
-    setForm({ tenant_id: u.tenant_id, username: u.username, password: "", full_name: u.full_name ?? "", role: u.role, active: u.active });
+    setForm({
+      tenant_id: u.tenant_id, username: u.username, password: "", full_name: u.full_name ?? "",
+      role: u.role, active: u.active, client_scope: u.client_scope ?? [],
+    });
+    setClientSearch("");
     setShowPwd(false); setShowModal(true);
+    loadTenantClients(u.tenant_id);
   };
+
+  // Si el superadmin cambia el selector de "Empresa" mientras crea un usuario,
+  // recarga la lista de clientes de esa empresa.
+  const handleTenantChange = (tid: number) => {
+    setForm(f => ({ ...f, tenant_id: tid, client_scope: [] }));
+    loadTenantClients(tid);
+  };
+
+  const toggleClientScope = (clientId: string) => {
+    setForm(f => ({
+      ...f,
+      client_scope: f.client_scope.includes(clientId)
+        ? f.client_scope.filter(c => c !== clientId)
+        : [...f.client_scope, clientId],
+    }));
+  };
+
+  const filteredTenantClients = tenantClients.filter(c =>
+    c.client_name.toLowerCase().includes(clientSearch.toLowerCase())
+  );
 
   const handleSave = async () => {
     setSaving(true);
     try {
       if (editing) {
-        const data: any = { full_name: form.full_name, role: form.role, active: form.active };
+        const data: any = { full_name: form.full_name, role: form.role, active: form.active, client_scope: form.client_scope };
         if (form.password) data.password = form.password;
         await adminApi.updateUser(editing.id, data);
       } else {
@@ -84,6 +125,7 @@ export function UsersPage({ isSuperAdmin, sessionTenantId }: Props) {
           password:  form.password,
           full_name: form.full_name || undefined,
           role:      form.role,
+          client_scope: form.client_scope,
         });
       }
       setShowModal(false); await load();
@@ -136,7 +178,7 @@ export function UsersPage({ isSuperAdmin, sessionTenantId }: Props) {
           <table className="w-full text-sm">
             <thead className="bg-slate-800/50">
               <tr>
-                {["Usuario","Nombre","Empresa","Rol","Estado","Acciones"].map(h => (
+                {["Usuario","Nombre","Empresa","Rol","Alcance","Estado","Acciones"].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-400">{h}</th>
                 ))}
               </tr>
@@ -153,6 +195,15 @@ export function UsersPage({ isSuperAdmin, sessionTenantId }: Props) {
                       <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${roleCfg.cls}`}>
                         {roleCfg.label}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {!u.client_scope || u.client_scope.length === 0 ? (
+                        <span className="text-xs text-slate-500 italic">Todos los clientes</span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium bg-amber-500/10 text-amber-400 border-amber-500/30">
+                          {u.client_scope.length} cliente{u.client_scope.length !== 1 ? "s" : ""}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${
@@ -173,7 +224,7 @@ export function UsersPage({ isSuperAdmin, sessionTenantId }: Props) {
                 );
               })}
               {displayed.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-slate-500">Sin usuarios.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-500">Sin usuarios.</td></tr>
               )}
             </tbody>
           </table>
@@ -182,12 +233,12 @@ export function UsersPage({ isSuperAdmin, sessionTenantId }: Props) {
 
       {showModal && (
         <Modal title={editing ? "Editar usuario" : "Nuevo usuario"} onClose={() => setShowModal(false)}>
-          <div className="p-6 space-y-4">
+          <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
             {/* Tenant selector (solo superadmin creando) */}
             {isSuperAdmin && !editing && (
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">Empresa</label>
-                <select value={form.tenant_id} onChange={e => setForm(f => ({ ...f, tenant_id: Number(e.target.value) }))}
+                <select value={form.tenant_id} onChange={e => handleTenantChange(Number(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-sky-500">
                   {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
@@ -229,6 +280,59 @@ export function UsersPage({ isSuperAdmin, sessionTenantId }: Props) {
                     }`}>{cfg.label}</button>
                 ))}
               </div>
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                {form.role === "admin"    && "Puede ver, editar, activar/desactivar dispositivos y gestionar otros usuarios."}
+                {form.role === "operator" && "Puede ver dispositivos y realizar acciones (activar, desactivar, renovar, editar), pero no gestionar usuarios."}
+                {form.role === "viewer"   && "Solo puede ver, sin realizar ninguna acción."}
+              </p>
+            </div>
+
+            {/* Alcance de clientes */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" /> Clientes que puede ver
+              </label>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Deja todo sin marcar para que vea <span className="text-slate-300 font-medium">todos</span> los
+                clientes de la empresa. Marca uno o varios para restringirlo solo a esos.
+              </p>
+              <div className="bg-slate-950 border border-slate-700 rounded-lg overflow-hidden">
+                <div className="p-2 border-b border-slate-800">
+                  <input value={clientSearch} onChange={e => setClientSearch(e.target.value)}
+                    placeholder="Buscar cliente…"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500" />
+                </div>
+                <div className="max-h-40 overflow-y-auto">
+                  {loadingTenantClients ? (
+                    <div className="flex items-center justify-center py-6 text-slate-500">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    </div>
+                  ) : filteredTenantClients.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic text-center py-6">
+                      {tenantClients.length === 0 ? "Esta empresa aún no tiene clientes sincronizados." : "Sin resultados."}
+                    </p>
+                  ) : (
+                    filteredTenantClients.map(c => {
+                      const checked = form.client_scope.includes(c.client_fulltrack_id);
+                      return (
+                        <button key={c.client_fulltrack_id} type="button"
+                          onClick={() => toggleClientScope(c.client_fulltrack_id)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-slate-900 transition-colors border-b border-slate-800/50 last:border-b-0">
+                          {checked
+                            ? <CheckSquare className="w-4 h-4 text-sky-400 shrink-0" />
+                            : <Square className="w-4 h-4 text-slate-600 shrink-0" />}
+                          <span className="text-xs text-slate-200 truncate">{c.client_name}</span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+              {form.client_scope.length > 0 && (
+                <p className="text-[11px] text-amber-400 mt-1.5">
+                  Restringido a {form.client_scope.length} cliente{form.client_scope.length !== 1 ? "s" : ""}.
+                </p>
+              )}
             </div>
             {editing && (
               <div className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800">

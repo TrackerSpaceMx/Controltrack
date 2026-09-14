@@ -35,6 +35,18 @@ def _effective_tenant(session: dict, impersonate: int | None = None) -> int | No
         return impersonate
     return session.get("tenant_id")
 
+def _assert_can_view_client(session: dict, client_fulltrack_id: str, devices: list) -> None:
+    """404 si el cliente no existe, no pertenece al tenant del usuario, o está
+    fuera del alcance de clientes asignado a este usuario. Se usa 404 (no 403)
+    para no confirmar que el cliente existe en otro tenant."""
+    if session.get("is_superadmin"):
+        return
+    scope = session.get("client_scope") or []
+    if scope and client_fulltrack_id not in scope:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if devices and devices[0].get("tenant_id") != session.get("tenant_id"):
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
 load_dotenv()
 
 FULLTRACK_BASE_URL = os.getenv("FULLTRACK_BASE_URL", "http://ws.fulltrack2.com")
@@ -197,7 +209,8 @@ async def get_devices(
         expiring_days, expire_from, expire_to,
         seller_filter, installer_filter, contract_type_filter,
         search_rfc, search_custom,
-        page, page_size, tenant_id=effective_tenant_id
+        page, page_size, tenant_id=effective_tenant_id,
+        client_scope=session.get("client_scope") or None
     )
 
 
@@ -435,7 +448,7 @@ async def get_stats(
     session=Depends(get_current_session)
 ):
     tenant_id = _effective_tenant(session, x_impersonate_tenant)
-    return await crud.get_stats(db, tenant_id=tenant_id)
+    return await crud.get_stats(db, tenant_id=tenant_id, client_scope=session.get("client_scope") or None)
 
 @app.get("/api/stats/monthly", response_model=List[MonthlyExpiration])
 async def get_monthly_stats(
@@ -444,7 +457,7 @@ async def get_monthly_stats(
     session=Depends(get_current_session)
 ):
     tenant_id = _effective_tenant(session, x_impersonate_tenant)
-    return await crud.get_monthly_expirations(db, tenant_id=tenant_id)
+    return await crud.get_monthly_expirations(db, tenant_id=tenant_id, client_scope=session.get("client_scope") or None)
 
 @app.get("/api/stats/by-seller", response_model=List[SellerStats])
 async def get_seller_stats(
@@ -453,26 +466,32 @@ async def get_seller_stats(
     session=Depends(get_current_session)
 ):
     tenant_id = _effective_tenant(session, x_impersonate_tenant)
-    return await crud.get_seller_stats(db, tenant_id=tenant_id)
+    return await crud.get_seller_stats(db, tenant_id=tenant_id, client_scope=session.get("client_scope") or None)
 
 
 # ─── Client devices & invoice ─────────────────────────────────────────────────
 
 @app.get("/api/clients/{client_fulltrack_id}/devices", response_model=List[DeviceResponse])
-async def get_client_devices(client_fulltrack_id: str, db=Depends(get_db)):
-    return await crud.get_devices_by_client(db, client_fulltrack_id)
+async def get_client_devices(client_fulltrack_id: str, db=Depends(get_db), session=Depends(get_current_session)):
+    devices = await crud.get_devices_by_client(db, client_fulltrack_id)
+    _assert_can_view_client(session, client_fulltrack_id, devices)
+    return devices
 
 @app.get("/api/clients/{client_fulltrack_id}/invoice-preview", response_model=InvoicePreview)
-async def get_invoice_preview(client_fulltrack_id: str, db=Depends(get_db)):
+async def get_invoice_preview(client_fulltrack_id: str, db=Depends(get_db), session=Depends(get_current_session)):
+    devices = await crud.get_devices_by_client(db, client_fulltrack_id)
+    _assert_can_view_client(session, client_fulltrack_id, devices)
     return await crud.get_invoice_preview(db, client_fulltrack_id)
 
 @app.get("/api/clients/{client_fulltrack_id}/billing-by-rfc", response_model=ClientBillingSummary)
-async def get_client_billing_by_rfc(client_fulltrack_id: str, db=Depends(get_db)):
+async def get_client_billing_by_rfc(client_fulltrack_id: str, db=Depends(get_db), session=Depends(get_current_session)):
     """Desglosa la facturación mensual de un cliente por RFC / razón social.
 
     Útil cuando el cliente final (ej. 'Alex') tiene varios vehículos y algunos
     se facturan a un RFC/razón social y otros a un RFC/razón social distinto.
     """
+    devices = await crud.get_devices_by_client(db, client_fulltrack_id)
+    _assert_can_view_client(session, client_fulltrack_id, devices)
     return await crud.get_client_billing_by_rfc(db, client_fulltrack_id)
 
 
@@ -515,7 +534,8 @@ async def export_data(
         db, status_filter, seller_filter, contract_type_filter,
         expire_from, expire_to, expiring_days, tenant_id=tenant_id,
         search_client=search_client, search_imei=search_imei, search_device=search_device,
-        search_rfc=search_rfc, search_custom=search_custom
+        search_rfc=search_rfc, search_custom=search_custom,
+        client_scope=session.get("client_scope") or None
     )
 
     # Si el tenant tiene el módulo Activos habilitado, se agregan columnas de
@@ -808,6 +828,7 @@ async def login_v2(body: LoginRequest, db=Depends(get_db)):
         tenant_name=result.get("tenant_name"),
         is_superadmin=result.get("role") == "superadmin",
         activos_enabled=result.get("activos_enabled", False),
+        client_scope=result.get("client_scope"),
     )
 
 @app.post("/api/v2/logout")
@@ -933,9 +954,14 @@ async def list_users(tenant_id: Optional[int] = None, db=Depends(get_db),
 async def create_user(body: UserCreate, db=Depends(get_db), session=Depends(get_current_session)):
     if not session.get("is_superadmin") and session.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Sin permisos para crear usuarios")
+    # Un admin de tenant solo puede crear usuarios en SU PROPIO tenant, sin
+    # importar qué tenant_id mande el request.
+    tenant_id = body.tenant_id if session.get("is_superadmin") else session.get("tenant_id")
     user_id = await crud_tenants.create_user(
-        db, body.tenant_id, body.username, body.password, body.full_name, body.role
+        db, tenant_id, body.username, body.password, body.full_name, body.role
     )
+    if body.client_scope is not None:
+        await crud_tenants.set_user_client_scope(db, user_id, body.client_scope)
     return {"success": True, "id": user_id}
 
 @app.put("/api/users/{user_id}")
@@ -944,6 +970,11 @@ async def update_user(user_id: int, body: UserUpdate, db=Depends(get_db),
     if not session.get("is_superadmin") and session.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Sin permisos")
     await crud_tenants.update_user(db, user_id, body.model_dump(exclude_none=True))
+    # client_scope vive en su propia tabla, no en users, así que se maneja aparte.
+    # Se actualiza siempre que el campo venga en el request (incluso [] para
+    # quitar la restricción), nunca cuando se omite del todo.
+    if body.client_scope is not None:
+        await crud_tenants.set_user_client_scope(db, user_id, body.client_scope)
     return {"success": True}
 
 @app.delete("/api/users/{user_id}")
@@ -952,6 +983,14 @@ async def delete_user(user_id: int, db=Depends(get_db), session=Depends(get_curr
         raise HTTPException(status_code=403, detail="Sin permisos")
     await crud_tenants.delete_user(db, user_id)
     return {"success": True}
+
+@app.get("/api/tenants/{tenant_id}/clients")
+async def list_tenant_clients(tenant_id: int, db=Depends(get_db), session=Depends(get_current_session)):
+    """Lista de clientes de un tenant, para el selector de 'a qué clientes
+    puede ver este usuario' en el panel de administración de usuarios."""
+    if not session.get("is_superadmin") and session.get("tenant_id") != tenant_id:
+        raise HTTPException(status_code=403, detail="Sin permisos")
+    return await crud_tenants.get_tenant_clients(db, tenant_id)
 
 
 # ─── NEW: WhatsApp ─────────────────────────────────────────────────────────────

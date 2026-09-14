@@ -119,14 +119,54 @@ async def get_users(cur, tenant_id: Optional[int] = None) -> list:
             ORDER BY t.name, u.username
         """)
     rows = await cur.fetchall()
+
+    # Una sola consulta para el alcance de todos los usuarios listados, en vez
+    # de una por usuario.
+    ids = [r["id"] for r in rows]
+    scope_by_user: dict[int, list[str]] = {}
+    if ids:
+        placeholders = ",".join(["%s"] * len(ids))
+        await cur.execute(
+            f"SELECT user_id, client_fulltrack_id FROM user_client_scope WHERE user_id IN ({placeholders})",
+            ids
+        )
+        for r in await cur.fetchall():
+            scope_by_user.setdefault(r["user_id"], []).append(r["client_fulltrack_id"])
+
     result = []
     for r in rows:
         d = dict(r)
         d.pop("password", None)  # nunca exponer el hash
         if d.get("created_at"):
             d["created_at"] = str(d["created_at"])
+        d["client_scope"] = scope_by_user.get(d["id"], [])
         result.append(d)
     return result
+
+async def get_user_client_scope(cur, user_id: int) -> list:
+    await cur.execute("SELECT client_fulltrack_id FROM user_client_scope WHERE user_id=%s", (user_id,))
+    return [r["client_fulltrack_id"] for r in await cur.fetchall()]
+
+async def set_user_client_scope(cur, user_id: int, client_ids: list):
+    """Reemplaza el alcance completo de un usuario. Lista vacía = sin
+    restricción (ve todos los clientes de su tenant)."""
+    await cur.execute("DELETE FROM user_client_scope WHERE user_id=%s", (user_id,))
+    client_ids = [c for c in dict.fromkeys(client_ids) if c]  # dedupe, sin vacíos
+    if client_ids:
+        await cur.executemany(
+            "INSERT INTO user_client_scope (user_id, client_fulltrack_id) VALUES (%s, %s)",
+            [(user_id, cid) for cid in client_ids]
+        )
+
+async def get_tenant_clients(cur, tenant_id: int) -> list:
+    """Lista de clientes distintos dentro de un tenant, para armar el selector
+    de 'qué clientes puede ver este usuario' en el panel de administración."""
+    await cur.execute("""
+        SELECT DISTINCT client_fulltrack_id, client_name
+        FROM devices WHERE tenant_id = %s
+        ORDER BY client_name
+    """, (tenant_id,))
+    return await cur.fetchall()
 
 async def create_user(cur, tenant_id: int, username: str, password: str,
                        full_name: Optional[str], role: str) -> int:

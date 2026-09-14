@@ -217,9 +217,14 @@ async def get_devices(cur, search_client=None, search_imei=None, search_device=N
                       seller_filter=None, installer_filter=None,
                       contract_type_filter=None,
                       search_rfc=None, search_custom=None,
-                      page=1, page_size=10, tenant_id=None):
+                      page=1, page_size=10, tenant_id=None, client_scope=None):
     base = "FROM devices d WHERE 1=1"
     params = []
+
+    if client_scope:
+        placeholders = ",".join(["%s"] * len(client_scope))
+        base += f" AND d.client_fulltrack_id IN ({placeholders})"
+        params.extend(client_scope)
 
     if tenant_id is not None:
         base += " AND d.tenant_id = %s"
@@ -601,7 +606,7 @@ async def run_auto_deactivation_scheduler(cur) -> dict:
 
 # ─── Stats ────────────────────────────────────────────────────────────────────
 
-async def get_stats(cur, tenant_id=None):
+async def get_stats(cur, tenant_id=None, client_scope=None):
     today = date.today()
     first_day = today.replace(day=1)
     if today.month == 12:
@@ -610,9 +615,14 @@ async def get_stats(cur, tenant_id=None):
         last_day = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
 
     tenant_filter = "AND tenant_id = %s" if tenant_id is not None else ""
+    scope_filter = ""
     params = [first_day.isoformat(), last_day.isoformat()]
     if tenant_id is not None:
         params.append(tenant_id)
+    if client_scope:
+        placeholders = ",".join(["%s"] * len(client_scope))
+        scope_filter = f" AND client_fulltrack_id IN ({placeholders})"
+        params.extend(client_scope)
 
     await cur.execute(f"""
         SELECT
@@ -623,7 +633,7 @@ async def get_stats(cur, tenant_id=None):
             SUM(CASE WHEN status='deactivated' THEN 1 ELSE 0 END) as deactivated,
             SUM(CASE WHEN expiration_date >= %s AND expiration_date <= %s THEN 1 ELSE 0 END) as expiring_this_month
         FROM devices
-        WHERE 1=1 {tenant_filter}
+        WHERE 1=1 {tenant_filter} {scope_filter}
     """, params)
     row = await cur.fetchone()
     return {
@@ -635,25 +645,37 @@ async def get_stats(cur, tenant_id=None):
         "expiring_this_month": int(row["expiring_this_month"] or 0),
     }
 
-async def get_monthly_expirations(cur, tenant_id=None):
+async def get_monthly_expirations(cur, tenant_id=None, client_scope=None):
     today = date.today()
     end = today.replace(year=today.year + 1)
     tenant_filter = "AND tenant_id = %s" if tenant_id is not None else ""
+    scope_filter = ""
     params = [today.isoformat(), end.isoformat()]
     if tenant_id is not None:
         params.append(tenant_id)
+    if client_scope:
+        placeholders = ",".join(["%s"] * len(client_scope))
+        scope_filter = f" AND client_fulltrack_id IN ({placeholders})"
+        params.extend(client_scope)
     await cur.execute(f"""
         SELECT DATE_FORMAT(expiration_date, '%%Y-%%m') as month, COUNT(*) as count
         FROM devices
-        WHERE expiration_date >= %s AND expiration_date <= %s {tenant_filter}
+        WHERE expiration_date >= %s AND expiration_date <= %s {tenant_filter} {scope_filter}
         GROUP BY month ORDER BY month
     """, params)
     rows = await cur.fetchall()
     return [{"month": r["month"], "count": int(r["count"])} for r in rows]
 
-async def get_seller_stats(cur, tenant_id=None) -> list:
-    tenant_filter = "WHERE tenant_id = %s" if tenant_id is not None else ""
-    params = [tenant_id] if tenant_id is not None else []
+async def get_seller_stats(cur, tenant_id=None, client_scope=None) -> list:
+    conditions, params = [], []
+    if tenant_id is not None:
+        conditions.append("tenant_id = %s")
+        params.append(tenant_id)
+    if client_scope:
+        placeholders = ",".join(["%s"] * len(client_scope))
+        conditions.append(f"client_fulltrack_id IN ({placeholders})")
+        params.extend(client_scope)
+    where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     await cur.execute(f"""
         SELECT
             COALESCE(seller_name, 'Sin asignar') as seller_name,
@@ -664,7 +686,7 @@ async def get_seller_stats(cur, tenant_id=None) -> list:
             SUM(CASE WHEN status='deactivated' THEN 1 ELSE 0 END) as deactivated,
             SUM(CASE WHEN status != 'deactivated' THEN COALESCE(monthly_price, 0) ELSE 0 END) as monthly_revenue
         FROM devices
-        {tenant_filter}
+        {where_clause}
         GROUP BY COALESCE(seller_name, 'Sin asignar')
         ORDER BY total DESC
     """, params)
@@ -742,13 +764,17 @@ async def get_invoice_preview(cur, client_fulltrack_id: str) -> dict:
 async def get_export_data(cur, status_filter=None, seller_filter=None, contract_type_filter=None,
                           expire_from=None, expire_to=None, expiring_days=None, tenant_id=None,
                           search_client=None, search_imei=None, search_device=None,
-                          search_rfc=None, search_custom=None) -> list:
+                          search_rfc=None, search_custom=None, client_scope=None) -> list:
     sql = "SELECT * FROM devices WHERE 1=1"
     params = []
 
     if tenant_id is not None:
         sql += " AND tenant_id = %s"
         params.append(tenant_id)
+    if client_scope:
+        placeholders = ",".join(["%s"] * len(client_scope))
+        sql += f" AND client_fulltrack_id IN ({placeholders})"
+        params.extend(client_scope)
     if search_client:
         sql += " AND client_name LIKE %s"
         params.append(f"%{search_client}%")

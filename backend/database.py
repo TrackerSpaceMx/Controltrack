@@ -200,6 +200,18 @@ async def init_db():
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
 
+            # ── Alcance de clientes por usuario (qué clientes puede ver) ─────
+            # Sin filas para un usuario = sin restricción (ve todos los
+            # clientes de su tenant, comportamiento actual sin cambios).
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_client_scope (
+                    user_id             INT NOT NULL,
+                    client_fulltrack_id VARCHAR(50) NOT NULL,
+                    PRIMARY KEY (user_id, client_fulltrack_id),
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS monitored_devices (
                     id                     INT AUTO_INCREMENT PRIMARY KEY,
@@ -233,6 +245,15 @@ async def migrate_tenants():
                 print("Columna tenants.activos_enabled agregada (default 0, no afecta tenants existentes)")
             except Exception:
                 pass  # ya existe
+
+            try:
+                await cur.execute(
+                    "ALTER TABLE users ADD COLUMN client_scope VARCHAR(255) DEFAULT NULL"
+                )
+                print("Columna users.client_scope agregada (default NULL = sin restricción, no afecta usuarios existentes)")
+            except Exception:
+                pass  # ya existe
+
             await conn.commit()
 
 async def migrate_db():

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import HTTPException, Header, Depends
 import aiomysql
+import crud_tenants
 
 ADMIN_USER     = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "controltrack2024")
@@ -21,7 +22,8 @@ def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 def create_session(user_id: Optional[int], tenant_id: Optional[int],
-                   username: str, role: str, is_superadmin: bool = False) -> str:
+                   username: str, role: str, is_superadmin: bool = False,
+                   client_scope: Optional[list] = None) -> str:
     token = secrets.token_urlsafe(32)
     _sessions[token] = {
         "user_id":      user_id,
@@ -29,6 +31,7 @@ def create_session(user_id: Optional[int], tenant_id: Optional[int],
         "username":     username,
         "role":         role,
         "is_superadmin": is_superadmin,
+        "client_scope": client_scope or [],  # [] = sin restricción, ve todo el tenant
         "expires":      datetime.utcnow() + timedelta(hours=12),
     }
     return token
@@ -69,6 +72,8 @@ async def authenticate_user(username: str, password: str, cur) -> dict:
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
     token = create_session(row["id"], row["tenant_id"], username, row["role"])
+    client_scope = await crud_tenants.get_user_client_scope(cur, row["id"])
+    _sessions[token]["client_scope"] = client_scope
     return {
         "token":       token,
         "role":        row["role"],
@@ -78,6 +83,7 @@ async def authenticate_user(username: str, password: str, cur) -> dict:
         "ft_apikey":   row["ft_apikey"],
         "ft_secretkey": row["ft_secretkey"],
         "activos_enabled": bool(row.get("activos_enabled")),
+        "client_scope": client_scope,
     }
 
 # ── FastAPI dependency ──────────────────────────────────────────────────────

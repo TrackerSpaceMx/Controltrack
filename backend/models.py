@@ -193,12 +193,14 @@ class UserCreate(BaseModel):
     password: str
     full_name: Optional[str] = None
     role: str = "operator"  # admin | operator | viewer
+    client_scope: Optional[List[str]] = None  # None/[] = sin restricción (ve todos los clientes del tenant)
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     password: Optional[str] = None
     role: Optional[str] = None
     active: Optional[bool] = None
+    client_scope: Optional[List[str]] = None  # se manda siempre que se edite el alcance, incluso [] para quitar la restricción
 
 class UserResponse(BaseModel):
     id: int
@@ -209,6 +211,7 @@ class UserResponse(BaseModel):
     active: bool
     tenant_name: Optional[str] = None
     created_at: Optional[str] = None
+    client_scope: Optional[List[str]] = None
 
     class Config:
         from_attributes = True
@@ -225,6 +228,7 @@ class LoginResponseV2(BaseModel):
     tenant_name: Optional[str] = None
     is_superadmin: bool = False
     activos_enabled: bool = False
+    client_scope: Optional[List[str]] = None
 
 
 # ─── WhatsApp ─────────────────────────────────────────────────────────────────

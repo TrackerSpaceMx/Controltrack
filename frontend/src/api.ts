@@ -362,6 +362,7 @@ export interface SessionInfo {
   tenant_name: string | null;
   is_superadmin: boolean;
   activos_enabled?: boolean;
+  client_scope?: string[]; // [] o undefined = sin restricción, ve todos los clientes del tenant
 }
 
 export interface Tenant {
@@ -408,6 +409,12 @@ export interface AppUser {
   active: boolean;
   tenant_name?: string;
   created_at?: string;
+  client_scope?: string[]; // [] = sin restricción, ve todos los clientes del tenant
+}
+
+export interface TenantClient {
+  client_fulltrack_id: string;
+  client_name: string;
 }
 
 export interface WhatsAppHistoryRecord {
@@ -474,14 +481,16 @@ export const adminApi = {
   // Users
   getUsers: (tenantId?: number) =>
     authReq<AppUser[]>(`/api/users${tenantId ? `?tenant_id=${tenantId}` : ""}`),
-  createUser: (data: { tenant_id: number; username: string; password: string; full_name?: string; role: string }) =>
+  createUser: (data: { tenant_id: number; username: string; password: string; full_name?: string; role: string; client_scope?: string[] }) =>
     authReq<{ success: boolean; id: number }>("/api/users", {
       method: "POST", body: JSON.stringify(data),
     }),
-  updateUser: (id: number, data: Partial<AppUser & { password?: string }>) =>
+  updateUser: (id: number, data: Partial<AppUser & { password?: string; client_scope?: string[] }>) =>
     authReq<{ success: boolean }>(`/api/users/${id}`, {
       method: "PUT", body: JSON.stringify(data),
     }),
+  getTenantClients: (tenantId: number) =>
+    authReq<TenantClient[]>(`/api/tenants/${tenantId}/clients`),
   deleteUser: (id: number) =>
     authReq<{ success: boolean }>(`/api/users/${id}`, { method: "DELETE" }),
 
