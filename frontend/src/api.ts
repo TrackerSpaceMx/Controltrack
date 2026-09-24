@@ -187,6 +187,7 @@ export const api = {
       expired:             data.expired             ?? 0,
       deactivated:         data.deactivated         ?? 0,
       expiring_this_month: data.expiring_this_month ?? 0,
+      revenue_by_contract: data.revenue_by_contract  ?? {},
     };
   },
 
