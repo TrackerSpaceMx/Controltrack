@@ -473,7 +473,10 @@ async def get_stats(
     session=Depends(get_current_session)
 ):
     tenant_id = _effective_tenant(session, x_impersonate_tenant)
-    return await crud.get_stats(db, tenant_id=tenant_id, client_scope=session.get("client_scope") or None)
+    scope = session.get("client_scope") or None
+    stats = await crud.get_stats(db, tenant_id=tenant_id, client_scope=scope)
+    stats["revenue_by_contract"] = await crud.get_revenue_by_contract_type(db, tenant_id=tenant_id, client_scope=scope)
+    return stats
 
 @app.get("/api/stats/monthly", response_model=List[MonthlyExpiration])
 async def get_monthly_stats(
@@ -538,9 +541,9 @@ async def get_export_session(
 @app.get("/api/export")
 async def export_data(
     format:               str = Query("csv", regex="^(csv|xlsx|pdf)$"),
-    status_filter:        Optional[str] = None,
+    status_filter:        Optional[List[str]] = Query(None),
     seller_filter:        Optional[str] = None,
-    contract_type_filter: Optional[str] = None,
+    contract_type_filter: Optional[List[str]] = Query(None),
     expire_from:          Optional[str] = None,
     expire_to:            Optional[str] = None,
     expiring_days:        Optional[int] = None,
@@ -636,6 +639,7 @@ async def export_data(
         "sim":           "SIM",
         "model":         "Modelo GPS",
         "contract_type": "Tipo contrato",
+        "contracted_months": "Meses contratados",
         "seller_name":   "Vendedor",
         "installer_name":"Instalador",
         "install_date":  "Fecha instalación",
@@ -788,7 +792,7 @@ async def export_data(
         # largo (Cliente, Vehículo, Vendedor, Ubicación, campos personalizados).
         width_by_key = {
             "client_name": 68, "device_name": 60, "plate": 42, "imei": 62,
-            "sim": 48, "model": 46, "contract_type": 40, "seller_name": 55,
+            "sim": 48, "model": 46, "contract_type": 40, "contracted_months": 34, "seller_name": 55,
             "installer_name": 55, "install_date": 42, "registration_date": 42,
             "expiration_date": 42, "days_until_expiration": 30, "monthly_price": 42,
             "status": 38, "rfc": 46, "chassis": 62,

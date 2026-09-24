@@ -382,7 +382,7 @@ async def get_client_billing_by_rfc(cur, client_fulltrack_id: str):
 
 async def update_device_details(cur, device_id: int, data: dict) -> bool:
     # Campos actualizables
-    fields = ["contract_type", "seller_name", "installer_name", "install_date", "monthly_price", "rfc", "razon_social"]
+    fields = ["contract_type", "contracted_months", "seller_name", "installer_name", "install_date", "monthly_price", "rfc", "razon_social"]
     updates = {k: v for k, v in data.items() if k in fields and v is not None}
 
     # Auto-calcular vencimiento si se pide
@@ -710,6 +710,30 @@ async def get_seller_stats(cur, tenant_id=None, client_scope=None) -> list:
     ]
 
 
+async def get_revenue_by_contract_type(cur, tenant_id=None, client_scope=None) -> dict:
+    """Total a facturar (monthly_price) por tipo de contratación, sobre los
+    dispositivos que siguen contando como servicio activo (status != 'deactivated'),
+    mismo criterio que get_seller_stats / get_invoice_preview."""
+    conditions, params = ["status != 'deactivated'"], []
+    if tenant_id is not None:
+        conditions.append("tenant_id = %s")
+        params.append(tenant_id)
+    if client_scope:
+        placeholders = ",".join(["%s"] * len(client_scope))
+        conditions.append(f"client_fulltrack_id IN ({placeholders})")
+        params.extend(client_scope)
+    where_clause = "WHERE " + " AND ".join(conditions)
+    await cur.execute(f"""
+        SELECT COALESCE(contract_type, 'sin_tipo') as contract_type,
+               SUM(COALESCE(monthly_price, 0)) as total
+        FROM devices
+        {where_clause}
+        GROUP BY COALESCE(contract_type, 'sin_tipo')
+    """, params)
+    rows = await cur.fetchall()
+    return {r["contract_type"]: float(r["total"] or 0) for r in rows}
+
+
 # ─── Invoice preview ──────────────────────────────────────────────────────────
 
 async def get_invoice_preview(cur, client_fulltrack_id: str) -> dict:
@@ -809,15 +833,21 @@ async def get_export_data(cur, status_filter=None, seller_filter=None, contract_
     if search_device:
         sql += " AND (device_name LIKE %s OR plate LIKE %s OR sim LIKE %s)"
         params.extend([f"%{search_device}%", f"%{search_device}%", f"%{search_device}%"])
-    if status_filter and status_filter != "all":
-        sql += " AND status = %s"
-        params.append(status_filter)
+    if status_filter:
+        statuses = [s for s in status_filter if s and s != "all"]
+        if statuses:
+            placeholders = ",".join(["%s"] * len(statuses))
+            sql += f" AND status IN ({placeholders})"
+            params.extend(statuses)
     if seller_filter:
         sql += " AND seller_name LIKE %s"
         params.append(f"%{seller_filter}%")
     if contract_type_filter:
-        sql += " AND contract_type = %s"
-        params.append(contract_type_filter)
+        types = [c for c in contract_type_filter if c]
+        if types:
+            placeholders = ",".join(["%s"] * len(types))
+            sql += f" AND contract_type IN ({placeholders})"
+            params.extend(types)
     if search_rfc:
         sql += " AND (rfc LIKE %s OR razon_social LIKE %s)"
         params.extend([f"%{search_rfc}%", f"%{search_rfc}%"])

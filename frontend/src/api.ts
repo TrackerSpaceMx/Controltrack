@@ -18,6 +18,7 @@ export interface DeviceRecord {
   days_until_expiration: number | null;
   // Nuevos v2
   contract_type: ContractType | null;
+  contracted_months?: number | null;
   seller_name: string | null;
   installer_name: string | null;
   install_date: string | null;
@@ -81,6 +82,7 @@ export interface DashboardStats {
   expired: number;
   deactivated: number;
   expiring_this_month: number;
+  revenue_by_contract?: Record<string, number>;
 }
 
 export interface MonthlyExpiration {
@@ -259,6 +261,7 @@ export const api = {
 
   updateDeviceDetails: (deviceId: number, data: Partial<{
     contract_type: string;
+    contracted_months: number;
     seller_name: string;
     installer_name: string;
     install_date: string;
@@ -323,9 +326,9 @@ export const api = {
 
   getExportUrl: (params: {
     format: "csv" | "xlsx" | "pdf";
-    status_filter?: string;
+    status_filter?: string[];
     seller_filter?: string;
-    contract_type_filter?: string;
+    contract_type_filter?: string[];
     expire_from?: string;
     expire_to?: string;
     expiring_days?: number;
@@ -336,9 +339,9 @@ export const api = {
     search_custom?: string;
   }) => {
     const qs = new URLSearchParams({ format: params.format });
-    if (params.status_filter)        qs.set("status_filter",        params.status_filter);
+    (params.status_filter ?? []).forEach(s => qs.append("status_filter", s));
+    (params.contract_type_filter ?? []).forEach(c => qs.append("contract_type_filter", c));
     if (params.seller_filter)        qs.set("seller_filter",        params.seller_filter);
-    if (params.contract_type_filter) qs.set("contract_type_filter", params.contract_type_filter);
     if (params.expire_from)          qs.set("expire_from",          params.expire_from);
     if (params.expire_to)            qs.set("expire_to",            params.expire_to);
     if (params.expiring_days !== undefined) qs.set("expiring_days", String(params.expiring_days));

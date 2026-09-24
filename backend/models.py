@@ -40,6 +40,7 @@ class DeviceResponse(BaseModel):
     rfc: Optional[str] = None
     razon_social: Optional[str] = None
     chassis: Optional[str] = None
+    contracted_months: Optional[int] = None
     custom_fields: Optional[List[Dict[str, Any]]] = None
 
     class Config:
@@ -56,6 +57,7 @@ class UpdateExpirationRequest(BaseModel):
 
 class UpdateDeviceDetailsRequest(BaseModel):
     contract_type: Optional[str] = None
+    contracted_months: Optional[int] = None
     seller_name: Optional[str] = None
     installer_name: Optional[str] = None
     install_date: Optional[date] = None
@@ -93,6 +95,7 @@ class DashboardStats(BaseModel):
     expired: int
     deactivated: int
     expiring_this_month: int
+    revenue_by_contract: Optional[Dict[str, float]] = None
 
 class MonthlyExpiration(BaseModel):
     month: str

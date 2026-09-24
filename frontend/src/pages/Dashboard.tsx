@@ -506,7 +506,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
 
   const hasFilters = !!(searchClient || searchImei || searchDevice || expiringDays !== undefined || expireFrom || expireTo || sellerFilter || contractFilter || searchRfc || searchCustom || statusFilter !== "all");
   const currentMonthLabel = new Date().toLocaleDateString("es-MX", { month: "long", year: "numeric" });
-  const COL_COUNT = 12;
+  const COL_COUNT = 13;
 
   return (
     <div className="flex flex-col flex-1 bg-slate-950 font-sans text-slate-300 overflow-hidden h-full">
@@ -566,6 +566,36 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                 </div>
               </button>
             ))}
+          </div>
+
+          {/* Total a facturar por tipo de contratación */}
+          <div className="grid grid-cols-5 gap-3 mt-3">
+            {[
+              { key: "monthly",    label: "Mensual"    },
+              { key: "quarterly",  label: "Trimestral" },
+              { key: "semiannual", label: "Semestral"  },
+              { key: "annual",     label: "Anual"      },
+              { key: "lease",      label: "Comodato / Arrendamiento" },
+            ].map(({ key, label }) => {
+              const total = stats.revenue_by_contract?.[key] ?? 0;
+              const isFiltered = contractFilter === key && activeTab === "dashboard";
+              return (
+                <button key={key}
+                  onClick={() => { setContractFilter(isFiltered ? "" : key); setActiveTab("dashboard"); }}
+                  className={`bg-slate-900 border rounded-xl p-3 flex items-center gap-3 text-left transition-all hover:border-slate-600
+                    ${isFiltered ? "border-teal-500/50 ring-1 ring-teal-500/30" : "border-slate-800"}`}>
+                  <div className="w-9 h-9 rounded-lg bg-teal-500/10 flex items-center justify-center shrink-0">
+                    <span className="text-teal-500 text-sm font-bold">$</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-400 leading-tight truncate">A facturar — {label}</p>
+                    <p className="text-lg font-bold text-white tabular-nums truncate">
+                      {total.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 })}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -807,6 +837,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                       <col style={{ width: 130 }} /> {/* imei */}
                       <col style={{ width: 120 }} /> {/* modelo */}
                       <col style={{ width: 100 }} /> {/* contrato */}
+                      <col style={{ width: 52 }}  /> {/* meses contratados */}
                       <col style={{ width: 100 }} /> {/* vendedor */}
                       <col style={{ width: 82 }}  /> {/* fecha alta */}
                       <col style={{ width: 90 }}  /> {/* vencimiento */}
@@ -839,7 +870,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                               : <ChevronDown className="w-4 h-4" />}
                           </button>
                         </th>
-                        {["Cliente","Vehículo","IMEI","Modelo GPS","Contrato","Vendedor","Fecha Alta","Vencimiento","Tiempo restante","Estado","Acciones"].map(h => (
+                        {["Cliente","Vehículo","IMEI","Modelo GPS","Contrato","Meses","Vendedor","Fecha Alta","Vencimiento","Tiempo restante","Estado","Acciones"].map(h => (
                           <th key={h} title={h} className="px-3 py-2.5 font-medium text-slate-400 border-b border-slate-800 truncate">{h}</th>
                         ))}
                       </tr>
@@ -884,6 +915,9 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                                   const c = cfg[device.contract_type] ?? { label: device.contract_type, cls: "bg-slate-800 text-slate-300 border-slate-700" };
                                   return <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold border ${c.cls}`}>{c.label}</span>;
                                 })() : <span className="text-slate-600">—</span>}
+                              </td>
+                              <td className="px-3 py-2.5 text-slate-400 text-center" title={device.contracted_months != null ? `${device.contracted_months} meses` : ""}>
+                                {device.contracted_months ?? "—"}
                               </td>
                               <td className="px-3 py-2.5 text-slate-400 truncate" title={device.seller_name ?? ""}>{device.seller_name ?? "—"}</td>
                               <td className="px-3 py-2.5 text-slate-400 truncate" title={device.registration_date ?? ""}>{device.registration_date ?? "—"}</td>
