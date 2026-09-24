@@ -254,6 +254,14 @@ async def migrate_tenants():
             except Exception:
                 pass  # ya existe
 
+            try:
+                await cur.execute(
+                    "ALTER TABLE tenants ADD COLUMN chassis_field_override VARCHAR(50) DEFAULT NULL"
+                )
+                print("Columna tenants.chassis_field_override agregada (default NULL = usa ras_vei_chassi normal)")
+            except Exception:
+                pass  # ya existe
+
             await conn.commit()
 
 async def migrate_db():

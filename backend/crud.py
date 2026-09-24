@@ -72,7 +72,8 @@ def _enrich_row(row: dict) -> dict:
 
 # ─── Sync ─────────────────────────────────────────────────────────────────────
 
-async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data, products_data, workshop_data=None, tenant_id=None) -> int:
+async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data, products_data,
+                    workshop_data=None, tenant_id=None, chassis_field: str = "ras_vei_chassi") -> int:
     clients_map  = {c["ras_cli_id"]: c for c in clients_data}
     vehicles_map = {v["ras_vei_id"]: v for v in vehicles_data}
     products_map = {p["ras_prd_id"]: p.get("ras_prd_desc", "") for p in products_data}
@@ -112,7 +113,7 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
             if not vei_desc:
                 vei_desc  = v.get("ras_vei_veiculo", "") or v.get("ras_vei_placa", "")
                 vei_placa = v.get("ras_vei_placa", "") or vei_placa
-            vei_chassi = v.get("ras_vei_chassi", "") or ""
+            vei_chassi = v.get(chassis_field, "") or ""
 
         prd_id = tracker.get("ras_ras_prd_id", "") or event.get("ras_prd_id", "")
         model  = products_map.get(prd_id, prd_id)

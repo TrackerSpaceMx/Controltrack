@@ -68,13 +68,14 @@ async def do_sync():
 
     async with pool.acquire() as conn:
         async with conn.cursor(_aiomysql.DictCursor) as cur:
-            await cur.execute("SELECT id, ft_apikey, ft_secretkey FROM tenants WHERE active = 1")
+            await cur.execute("SELECT id, ft_apikey, ft_secretkey, chassis_field_override FROM tenants WHERE active = 1")
             tenants = await cur.fetchall()
 
     for tenant in tenants:
         tenant_id = tenant["id"]
         apikey    = tenant["ft_apikey"]
         secretkey = tenant["ft_secretkey"]
+        chassis_field = tenant.get("chassis_field_override") or "ras_vei_chassi"
 
         def ft_url_tenant(path):
             return f"{FULLTRACK_BASE_URL}/{path}/apiKey/{apikey}/secretKey/{secretkey}"
@@ -102,6 +103,7 @@ async def do_sync():
                     r_products.json().get("data", []),
                     r_workshop.json().get("data", []),
                     tenant_id=tenant_id,
+                    chassis_field=chassis_field,
                 )
                 await conn.commit()
                 total_synced += synced
@@ -933,6 +935,7 @@ async def sync_tenant(tenant_id: int, db=Depends(get_db), session=Depends(requir
 
     ft_base = os.getenv("FULLTRACK_BASE_URL", "http://ws.fulltrack2.com")
     def t_url(path): return f"{ft_base}/{path}/apiKey/{tenant['ft_apikey']}/secretKey/{tenant['ft_secretkey']}"
+    chassis_field = tenant.get("chassis_field_override") or "ras_vei_chassi"
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
@@ -959,6 +962,7 @@ async def sync_tenant(tenant_id: int, db=Depends(get_db), session=Depends(requir
                 r_products.json().get("data", []),
                 r_workshop.json().get("data", []),
                 tenant_id=tenant_id,  # ✅ Bug 1 corrigido: tenant_id agora é passado
+                chassis_field=chassis_field,
             )
         await conn.commit()
     return {"success": True, "synced": synced}
