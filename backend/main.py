@@ -635,6 +635,29 @@ async def export_data(
             "_activo_longitud":            "Longitud",
         })
 
+    # Campos personalizados: distintos por vehículo, así que se agrega UNA
+    # columna por cada nombre de campo que exista entre los dispositivos que
+    # se están exportando (vacío para los que no lo tengan). Aplica a
+    # cualquier tenant, no solo a Holkan.
+    device_ids = [r["id"] for r in rows if r.get("id") is not None]
+    custom_by_device = await crud.get_custom_fields_bulk(db, device_ids)
+    custom_field_keys = []  # orden estable: por primera aparición
+    seen_labels = {}
+    for device_id, fields in custom_by_device.items():
+        for f in fields:
+            label = f["field_label"]
+            if label not in seen_labels:
+                cf_key = f"_cf_{len(seen_labels)}"
+                seen_labels[label] = cf_key
+                custom_field_keys.append(cf_key)
+                headers_map[cf_key] = label
+
+    for row in rows:
+        fields = custom_by_device.get(row.get("id"), [])
+        values_by_label = {f["field_label"]: f["field_value"] for f in fields}
+        for label, cf_key in seen_labels.items():
+            row[cf_key] = values_by_label.get(label, "")
+
     col_keys = list(headers_map.keys())
     col_labels = list(headers_map.values())
 
@@ -721,82 +744,59 @@ async def export_data(
         title = Paragraph("<b>ControlTrack — Reporte de dispositivos</b>", styles["Title"])
         subtitle = Paragraph(f"Generado: {dt_now.now().strftime('%d/%m/%Y %H:%M')} | Total: {len(rows)} registros", styles["Normal"])
 
-        if tenant_activos_enabled:
-            # Misma tabla que CSV/Excel (las 3 exportaciones muestran exactamente
-            # las mismas columnas). Con ~25 columnas no cabe en A4 ni siquiera
-            # horizontal, así que se usa A3 horizontal, letra pequeña, y cada
-            # celda es un Paragraph que envuelve el texto en vez de cortarlo
-            # (clave para "Ubicación", que puede ser una dirección larga).
-            doc = SimpleDocTemplate(buf, pagesize=landscape(A3), leftMargin=16, rightMargin=16, topMargin=24, bottomMargin=16)
+        # Mismas columnas que CSV/Excel siempre (incluye Activos si aplica, y
+        # los campos personalizados que tengan los dispositivos exportados).
+        # Página A4 si son pocas columnas, A3 si son muchas — nunca se cortan,
+        # porque además cada celda es un Paragraph que envuelve el texto.
+        page_size = landscape(A3) if len(col_keys) > 16 else landscape(A4)
+        margin = 16 if len(col_keys) > 16 else 20
+        doc = SimpleDocTemplate(buf, pagesize=page_size, leftMargin=margin, rightMargin=margin, topMargin=28, bottomMargin=margin)
 
-            header_style = ParagraphStyle("h", parent=styles["Normal"], fontSize=6.5,
-                                           textColor=colors.white, fontName="Helvetica-Bold", leading=8)
-            cell_style   = ParagraphStyle("c", parent=styles["Normal"], fontSize=6.5,
-                                           textColor=colors.HexColor("#0f172a"), leading=8)
+        font_size = 6.5 if len(col_keys) > 16 else 7.5
+        header_style = ParagraphStyle("h", parent=styles["Normal"], fontSize=font_size,
+                                       textColor=colors.white, fontName="Helvetica-Bold", leading=font_size + 1.5)
+        cell_style   = ParagraphStyle("c", parent=styles["Normal"], fontSize=font_size,
+                                       textColor=colors.HexColor("#0f172a"), leading=font_size + 1.5)
 
-            # Ancho por columna (pt) — más espacio a las que suelen traer texto
-            # largo (Cliente, Vehículo, Vendedor, Ubicación); el resto compacto.
-            width_by_key = {
-                "client_name": 68, "device_name": 60, "plate": 42, "imei": 62,
-                "sim": 48, "model": 46, "contract_type": 40, "seller_name": 55,
-                "installer_name": 55, "install_date": 42, "registration_date": 42,
-                "expiration_date": 42, "days_until_expiration": 30, "monthly_price": 42,
-                "status": 38, "rfc": 46,
-                "_activo_ultima_comunicacion": 58, "_activo_velocidad": 34,
-                "_activo_ignicion": 38, "_activo_bateria": 44, "_activo_satelites": 28,
-                "_activo_bloqueado": 34, "_activo_direccion": 130,
-                "_activo_latitud": 40, "_activo_longitud": 40,
-            }
-            col_raw_widths = [width_by_key.get(k, 45) for k in col_keys]
-            printable_width = landscape(A3)[0] - 32  # ancho de página menos los 2 márgenes de 16pt
-            total_raw = sum(col_raw_widths)
-            scale = min(1.0, printable_width / total_raw)  # solo encoge, nunca agranda de más
-            col_widths = [w * scale for w in col_raw_widths]
+        # Ancho por columna (pt) — más espacio a las que suelen traer texto
+        # largo (Cliente, Vehículo, Vendedor, Ubicación, campos personalizados).
+        width_by_key = {
+            "client_name": 68, "device_name": 60, "plate": 42, "imei": 62,
+            "sim": 48, "model": 46, "contract_type": 40, "seller_name": 55,
+            "installer_name": 55, "install_date": 42, "registration_date": 42,
+            "expiration_date": 42, "days_until_expiration": 30, "monthly_price": 42,
+            "status": 38, "rfc": 46,
+            "_activo_ultima_comunicacion": 58, "_activo_velocidad": 34,
+            "_activo_ignicion": 38, "_activo_bateria": 44, "_activo_satelites": 28,
+            "_activo_bloqueado": 34, "_activo_direccion": 130,
+            "_activo_latitud": 40, "_activo_longitud": 40,
+        }
+        # Campos personalizados (_cf_0, _cf_1, ...): texto libre, se les da más espacio.
+        for k in col_keys:
+            if k.startswith("_cf_") and k not in width_by_key:
+                width_by_key[k] = 70
 
-            data = [[Paragraph(label, header_style) for label in col_labels]]
-            for row in rows:
-                data.append([Paragraph(fmt(row, k) or "—", cell_style) for k in col_keys])
+        col_raw_widths = [width_by_key.get(k, 45) for k in col_keys]
+        printable_width = page_size[0] - margin * 2
+        scale = min(1.0, printable_width / sum(col_raw_widths))  # solo encoge, nunca agranda de más
+        col_widths = [w * scale for w in col_raw_widths]
 
-            t = Table(data, colWidths=col_widths, repeatRows=1)
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1e3a5f")),
-                ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f1f5f9")]),
-                ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#cbd5e1")),
-                ("VALIGN", (0,0), (-1,-1), "TOP"),
-                ("LEFTPADDING",  (0,0), (-1,-1), 2),
-                ("RIGHTPADDING", (0,0), (-1,-1), 2),
-                ("TOPPADDING",   (0,0), (-1,-1), 2),
-                ("BOTTOMPADDING",(0,0), (-1,-1), 2),
-            ]))
-            doc.build([title, Spacer(1, 6), subtitle, Spacer(1, 10), t])
+        data = [[Paragraph(label, header_style) for label in col_labels]]
+        for row in rows:
+            data.append([Paragraph(fmt(row, k) or "—", cell_style) for k in col_keys])
 
-        else:
-            # Tabla clásica de siempre — a los tenants sin Activos les cabe bien.
-            doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=20, rightMargin=20, topMargin=30, bottomMargin=20)
-
-            pdf_keys   = ["client_name","device_name","plate","imei","contract_type","seller_name","expiration_date","days_until_expiration","status"]
-            pdf_labels = ["Cliente","Vehículo","Placa","IMEI","Contrato","Vendedor","Vencimiento","Días","Estado"]
-            pdf_widths = [120, 100, 60, 110, 80, 90, 75, 40, 70]
-
-            data = [pdf_labels]
-            for row in rows:
-                data.append([fmt(row, k) for k in pdf_keys])
-
-            t = Table(data, colWidths=pdf_widths, repeatRows=1)
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1e3a5f")),
-                ("TEXTCOLOR",  (0,0), (-1,0), colors.white),
-                ("FONTSIZE",   (0,0), (-1,0), 9),
-                ("FONTSIZE",   (0,1), (-1,-1), 8),
-                ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f1f5f9")]),
-                ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#cbd5e1")),
-                ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-                ("LEFTPADDING",  (0,0), (-1,-1), 4),
-                ("RIGHTPADDING", (0,0), (-1,-1), 4),
-                ("TOPPADDING",   (0,0), (-1,-1), 3),
-                ("BOTTOMPADDING",(0,0), (-1,-1), 3),
-            ]))
-            doc.build([title, Spacer(1, 8), subtitle, Spacer(1, 12), t])
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#1e3a5f")),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f1f5f9")]),
+            ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#cbd5e1")),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("LEFTPADDING",  (0,0), (-1,-1), 2),
+            ("RIGHTPADDING", (0,0), (-1,-1), 2),
+            ("TOPPADDING",   (0,0), (-1,-1), 2),
+            ("BOTTOMPADDING",(0,0), (-1,-1), 2),
+        ]))
+        doc.build([title, Spacer(1, 6), subtitle, Spacer(1, 10), t])
 
         buf.seek(0)
         return Response(

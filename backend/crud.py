@@ -761,6 +761,26 @@ async def get_invoice_preview(cur, client_fulltrack_id: str) -> dict:
 
 # ─── Export data ──────────────────────────────────────────────────────────────
 
+async def get_custom_fields_bulk(cur, device_ids: list) -> dict:
+    """Devuelve {device_id: [{field_key, field_label, field_value}, ...]}
+    para una lista de dispositivos, en una sola consulta."""
+    if not device_ids:
+        return {}
+    placeholders = ",".join(["%s"] * len(device_ids))
+    await cur.execute(
+        f"SELECT device_id, field_key, field_label, field_type, field_value "
+        f"FROM custom_fields WHERE device_id IN ({placeholders}) ORDER BY id",
+        device_ids
+    )
+    by_device = {}
+    for f in await cur.fetchall():
+        by_device.setdefault(f["device_id"], []).append({
+            "field_key": f["field_key"], "field_label": f["field_label"],
+            "field_type": f["field_type"], "field_value": f["field_value"],
+        })
+    return by_device
+
+
 async def get_export_data(cur, status_filter=None, seller_filter=None, contract_type_filter=None,
                           expire_from=None, expire_to=None, expiring_days=None, tenant_id=None,
                           search_client=None, search_imei=None, search_device=None,
