@@ -24,6 +24,7 @@ export interface DeviceRecord {
   monthly_price: number | null;
   rfc: string | null;
   razon_social: string | null;
+  chassis?: string | null;
   custom_fields?: CustomField[];
 }
 

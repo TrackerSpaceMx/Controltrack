@@ -105,11 +105,14 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
         vei_id    = event.get("ras_vei_id", "")
         vei_placa = event.get("ras_vei_placa", "")
         vei_desc  = event.get("ras_vei_veiculo", "")
+        vei_chassi = ""
 
-        if not vei_desc and vei_id and vei_id in vehicles_map:
+        if vei_id and vei_id in vehicles_map:
             v = vehicles_map[vei_id]
-            vei_desc  = v.get("ras_vei_veiculo", "") or v.get("ras_vei_placa", "")
-            vei_placa = v.get("ras_vei_placa", "") or vei_placa
+            if not vei_desc:
+                vei_desc  = v.get("ras_vei_veiculo", "") or v.get("ras_vei_placa", "")
+                vei_placa = v.get("ras_vei_placa", "") or vei_placa
+            vei_chassi = v.get("ras_vei_chassi", "") or ""
 
         prd_id = tracker.get("ras_ras_prd_id", "") or event.get("ras_prd_id", "")
         model  = products_map.get(prd_id, prd_id)
@@ -141,8 +144,8 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
             INSERT INTO devices
                 (tracker_id, imei, client_fulltrack_id, vehicle_id,
                  client_name, device_name, plate, model, sim,
-                 registration_date, client_liberado, ras_ins_id, tenant_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 registration_date, client_liberado, ras_ins_id, tenant_id, chassis)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 tenant_id           = VALUES(tenant_id),
                 client_fulltrack_id = VALUES(client_fulltrack_id),
@@ -154,12 +157,13 @@ async def sync_data(cur, clients_data, trackers_data, vehicles_data, events_data
                 sim                 = COALESCE(VALUES(sim), sim),
                 client_liberado     = VALUES(client_liberado),
                 registration_date   = IF(registration_date IS NULL, VALUES(registration_date), registration_date),
-                ras_ins_id          = IF(VALUES(ras_ins_id) IS NOT NULL, VALUES(ras_ins_id), ras_ins_id)
+                ras_ins_id          = IF(VALUES(ras_ins_id) IS NOT NULL, VALUES(ras_ins_id), ras_ins_id),
+                chassis             = IF(VALUES(chassis) IS NOT NULL AND VALUES(chassis) != '', VALUES(chassis), chassis)
         
         """, (
             tracker_id, imei, cli_id, w_vei_id or None,
             client_name, vei_desc or None, vei_placa or None, model or None, sim or None,
-            reg_date, liberado, ins_id, tenant_id
+            reg_date, liberado, ins_id, tenant_id, vei_chassi or None
         ))
 
         if tenant_id is not None:

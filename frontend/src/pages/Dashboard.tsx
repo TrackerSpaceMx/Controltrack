@@ -127,7 +127,10 @@ function ExpandedDeviceRow({ device, colSpan, activo }: { device: DeviceRecord; 
     if (!device.vehicle_id) return;
     setLoadingDetail(true);
     const base = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:8000";
-    fetch(`${base}/api/vehicles/${device.vehicle_id}`)
+    const token = (window as any).__ct_token ?? "";
+    fetch(`${base}/api/vehicles/${device.vehicle_id}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.data?.[0]) setVehicleDetail(data.data[0]); })
       .catch(() => {})
@@ -153,6 +156,8 @@ function ExpandedDeviceRow({ device, colSpan, activo }: { device: DeviceRecord; 
             {device.rfc && <InfoChip icon={<span className="text-rose-400 text-xs font-bold">RFC</span>} bg="bg-rose-500/15" label="RFC" value={device.rfc} mono />}
             {/* Razón social */}
             {device.razon_social && <InfoChip icon={<span className="text-rose-400 text-xs font-bold">RS</span>} bg="bg-rose-500/15" label="Razón social" value={device.razon_social} />}
+            {/* Chasis (VIN) — viene guardado desde la sincronización, no requiere la llamada en vivo */}
+            {device.chassis && <InfoChip icon={<Tag className="w-3.5 h-3.5 text-sky-400" />} bg="bg-sky-500/15" label="Chasis (VIN)" value={device.chassis} mono />}
 
             {/* Vehicle data */}
             {loadingDetail ? (

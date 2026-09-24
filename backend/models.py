@@ -39,6 +39,7 @@ class DeviceResponse(BaseModel):
     monthly_price: Optional[float] = None
     rfc: Optional[str] = None
     razon_social: Optional[str] = None
+    chassis: Optional[str] = None
     custom_fields: Optional[List[Dict[str, Any]]] = None
 
     class Config:

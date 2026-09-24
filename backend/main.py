@@ -430,10 +430,33 @@ async def run_scheduler(db=Depends(get_db)):
 # ─── Vehicles ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/vehicles/{vehicle_id}")
-async def get_vehicle_detail(vehicle_id: str):
+async def get_vehicle_detail(vehicle_id: str, db=Depends(get_db), session=Depends(get_current_session)):
+    # Averiguar a qué tenant/cliente pertenece este vehicle_id, para usar SUS
+    # llaves de Fulltrack (no las globales del .env) y para verificar que el
+    # usuario tenga permiso de verlo (tenant + alcance de clientes).
+    await db.execute(
+        "SELECT tenant_id, client_fulltrack_id FROM devices WHERE vehicle_id = %s LIMIT 1",
+        (vehicle_id,)
+    )
+    row = await db.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+
+    if not session.get("is_superadmin"):
+        if row["tenant_id"] != session.get("tenant_id"):
+            raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+        scope = session.get("client_scope") or []
+        if scope and row["client_fulltrack_id"] not in scope:
+            raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+
+    tenant = await crud_tenants.get_tenant(db, row["tenant_id"])
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+
+    url = f"{FULLTRACK_BASE_URL}/vehicles/single/id/{vehicle_id}/apiKey/{tenant['ft_apikey']}/secretKey/{tenant['ft_secretkey']}"
     async with httpx.AsyncClient(timeout=15) as client:
         try:
-            r = await client.get(ft_url(f"vehicles/single/id/{vehicle_id}"))
+            r = await client.get(url)
             return r.json()
         except httpx.RequestError as e:
             raise HTTPException(status_code=502, detail=f"Error conectando con Fulltrack: {str(e)}")
@@ -620,6 +643,7 @@ async def export_data(
         "monthly_price": "Precio mensual",
         "status":        "Estado",
         "rfc":           "RFC",
+        "chassis":       "Chasis (VIN)",
     }
 
     if tenant_activos_enabled:
@@ -765,7 +789,7 @@ async def export_data(
             "sim": 48, "model": 46, "contract_type": 40, "seller_name": 55,
             "installer_name": 55, "install_date": 42, "registration_date": 42,
             "expiration_date": 42, "days_until_expiration": 30, "monthly_price": 42,
-            "status": 38, "rfc": 46,
+            "status": 38, "rfc": 46, "chassis": 62,
             "_activo_ultima_comunicacion": 58, "_activo_velocidad": 34,
             "_activo_ignicion": 38, "_activo_bateria": 44, "_activo_satelites": 28,
             "_activo_bloqueado": 34, "_activo_direccion": 130,

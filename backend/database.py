@@ -272,6 +272,7 @@ async def migrate_db():
                 ("razon_social",    "VARCHAR(255) DEFAULT NULL"),
                 ("tenant_id",       "INT DEFAULT NULL"),
                 ("whatsapp_number", "VARCHAR(20) DEFAULT NULL"),
+                ("chassis",         "VARCHAR(50) DEFAULT NULL"),
             ]
             for col, definition in migrations:
                 try:
