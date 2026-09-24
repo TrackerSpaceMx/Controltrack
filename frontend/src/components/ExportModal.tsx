@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Download, FileText, Table, File } from "lucide-react";
+import { X, Download, FileText, Table, File, Check } from "lucide-react";
 import { api, CONTRACT_OPTIONS } from "../api";
 
 interface Props {
@@ -60,26 +60,35 @@ const FORMAT_CONFIG: Record<Format, { label: string; icon: React.ReactNode; colo
 };
 
 export function ExportModal({ isOpen, onClose, currentFilters }: Props) {
-  const [format,       setFormat]       = useState<Format>("xlsx");
-  const [statusFilter, setStatusFilter] = useState(currentFilters?.status_filter ?? "");
-  const [contractType, setContractType] = useState(currentFilters?.contract_type_filter ?? "");
-  const [expiringDays, setExpiringDays] = useState(currentFilters?.expiring_days ? String(currentFilters.expiring_days) : "");
-  const [expireFrom,   setExpireFrom]   = useState(currentFilters?.expire_from ?? "");
-  const [expireTo,     setExpireTo]     = useState(currentFilters?.expire_to ?? "");
+  const [format,        setFormat]        = useState<Format>("xlsx");
+  const [statusFilters, setStatusFilters] = useState<string[]>(currentFilters?.status_filter ? [currentFilters.status_filter] : []);
+  const [contractTypes, setContractTypes] = useState<string[]>(currentFilters?.contract_type_filter ? [currentFilters.contract_type_filter] : []);
+  const [expiringDays,  setExpiringDays]  = useState(currentFilters?.expiring_days ? String(currentFilters.expiring_days) : "");
+  const [expireFrom,    setExpireFrom]    = useState(currentFilters?.expire_from ?? "");
+  const [expireTo,      setExpireTo]      = useState(currentFilters?.expire_to ?? "");
 
   // Se reinician cada vez que se abre el modal, para reflejar los filtros que
   // el usuario tiene puestos EN ESE MOMENTO en la tabla (y no los de la vez
   // pasada que abrió el modal).
   useEffect(() => {
     if (!isOpen) return;
-    setStatusFilter(currentFilters?.status_filter ?? "");
-    setContractType(currentFilters?.contract_type_filter ?? "");
+    setStatusFilters(currentFilters?.status_filter ? [currentFilters.status_filter] : []);
+    setContractTypes(currentFilters?.contract_type_filter ? [currentFilters.contract_type_filter] : []);
     setExpiringDays(currentFilters?.expiring_days ? String(currentFilters.expiring_days) : "");
     setExpireFrom(currentFilters?.expire_from ?? "");
     setExpireTo(currentFilters?.expire_to ?? "");
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null;
+
+  const toggleStatus = (value: string) => {
+    if (value === "") { setStatusFilters([]); return; }
+    setStatusFilters(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+  };
+  const toggleContractType = (value: string) => {
+    if (value === "") { setContractTypes([]); return; }
+    setContractTypes(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+  };
 
   const filtersSummary = [
     currentFilters?.search_client  && `Cliente: "${currentFilters.search_client}"`,
@@ -93,8 +102,8 @@ export function ExportModal({ isOpen, onClose, currentFilters }: Props) {
   const handleExport = () => {
     const url = api.getExportUrl({
       format,
-      status_filter:        statusFilter     || undefined,
-      contract_type_filter: contractType     || undefined,
+      status_filter:        statusFilters.length ? statusFilters : undefined,
+      contract_type_filter: contractTypes.length ? contractTypes : undefined,
       expiring_days:        expiringDays     ? Number(expiringDays) : undefined,
       expire_from:          expireFrom       || undefined,
       expire_to:            expireTo         || undefined,
@@ -158,18 +167,29 @@ export function ExportModal({ isOpen, onClose, currentFilters }: Props) {
 
           {/* Filtro por estado */}
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">Estado de los dispositivos</label>
+            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              Estado de los dispositivos <span className="text-slate-500 font-normal">(puedes elegir varios)</span>
+            </label>
             <div className="grid grid-cols-3 gap-1.5">
-              {STATUS_OPTIONS.map(opt => (
+              <button
+                onClick={() => toggleStatus("")}
+                className={`py-1.5 px-2 text-xs rounded-lg border transition-colors ${
+                  statusFilters.length === 0
+                    ? "bg-sky-500/20 border-sky-500/50 text-sky-300"
+                    : "border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-200"
+                }`}
+              >Todos</button>
+              {STATUS_OPTIONS.filter(o => o.value !== "").map(opt => (
                 <button
                   key={opt.value}
-                  onClick={() => setStatusFilter(opt.value)}
-                  className={`py-1.5 px-2 text-xs rounded-lg border transition-colors ${
-                    statusFilter === opt.value
+                  onClick={() => toggleStatus(opt.value)}
+                  className={`py-1.5 px-2 text-xs rounded-lg border transition-colors flex items-center justify-center gap-1 ${
+                    statusFilters.includes(opt.value)
                       ? "bg-sky-500/20 border-sky-500/50 text-sky-300"
                       : "border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-200"
                   }`}
                 >
+                  {statusFilters.includes(opt.value) && <Check className="w-3 h-3" />}
                   {opt.label}
                 </button>
               ))}
@@ -178,12 +198,14 @@ export function ExportModal({ isOpen, onClose, currentFilters }: Props) {
 
           {/* Filtro tipo contrato */}
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">Tipo de contratación</label>
+            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              Tipo de contratación <span className="text-slate-500 font-normal">(puedes elegir varios)</span>
+            </label>
             <div className="grid grid-cols-3 gap-1.5">
               <button
-                onClick={() => setContractType("")}
+                onClick={() => toggleContractType("")}
                 className={`py-1.5 text-xs rounded-lg border transition-colors ${
-                  contractType === ""
+                  contractTypes.length === 0
                     ? "bg-sky-500/20 border-sky-500/50 text-sky-300"
                     : "border-slate-700 text-slate-400 hover:border-slate-600"
                 }`}
@@ -191,13 +213,14 @@ export function ExportModal({ isOpen, onClose, currentFilters }: Props) {
               {CONTRACT_OPTIONS.map(opt => (
                 <button
                   key={opt.value}
-                  onClick={() => setContractType(opt.value)}
-                  className={`py-1.5 text-xs rounded-lg border transition-colors ${
-                    contractType === opt.value
+                  onClick={() => toggleContractType(opt.value)}
+                  className={`py-1.5 text-xs rounded-lg border transition-colors flex items-center justify-center gap-1 ${
+                    contractTypes.includes(opt.value)
                       ? "bg-sky-500/20 border-sky-500/50 text-sky-300"
                       : "border-slate-700 text-slate-400 hover:border-slate-600"
                   }`}
                 >
+                  {contractTypes.includes(opt.value) && <Check className="w-3 h-3" />}
                   {opt.label}
                 </button>
               ))}

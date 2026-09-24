@@ -22,6 +22,7 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
 
   // Form state
   const [contractType,   setContractType]   = useState<string>("");
+  const [contractedMonths, setContractedMonths] = useState("");
   const [sellerName,     setSellerName]     = useState("");
   const [installerName,  setInstallerName]  = useState("");
   const [installDate,    setInstallDate]    = useState("");
@@ -38,6 +39,7 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
   useEffect(() => {
     if (!device || !isOpen) return;
     setContractType(device.contract_type   ?? "");
+    setContractedMonths(device.contracted_months != null ? String(device.contracted_months) : "");
     setSellerName(  device.seller_name     ?? "");
     setInstallerName(device.installer_name ?? "");
     setInstallDate( device.install_date    ?? "");
@@ -56,6 +58,7 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
     try {
       const res = await api.updateDeviceDetails(device.id, {
         contract_type:           contractType   || undefined,
+        contracted_months:       contractedMonths !== "" ? parseInt(contractedMonths, 10) : undefined,
         seller_name:             sellerName     || undefined,
         installer_name:          installerName  || undefined,
         install_date:            installDate    || undefined,
@@ -145,6 +148,18 @@ export function DeviceDetailsModal({ isOpen, onClose, device, onSaved }: Props) 
               <ChevronDown className="absolute right-2.5 top-2.5 w-4 h-4 text-slate-500 pointer-events-none" />
             </div>
 
+          </div>
+
+          {/* Meses contratados */}
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1.5">Meses contratados</label>
+            <input
+              type="number" min="0" step="1"
+              value={contractedMonths}
+              onChange={e => setContractedMonths(e.target.value)}
+              placeholder="Ej. 12"
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+            />
           </div>
 
           {/* Precio mensual */}
