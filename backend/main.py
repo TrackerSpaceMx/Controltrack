@@ -855,6 +855,7 @@ async def login_v2(body: LoginRequest, db=Depends(get_db)):
         is_superadmin=result.get("role") == "superadmin",
         activos_enabled=result.get("activos_enabled", False),
         client_scope=result.get("client_scope"),
+        chassis_field_override=result.get("chassis_field_override"),
     )
 
 @app.post("/api/v2/logout")

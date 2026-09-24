@@ -364,6 +364,7 @@ export interface SessionInfo {
   is_superadmin: boolean;
   activos_enabled?: boolean;
   client_scope?: string[]; // [] o undefined = sin restricción, ve todos los clientes del tenant
+  chassis_field_override?: string | null; // si el tenant guarda el chasis en otro campo (ej. Holkan usa ras_vei_cor)
 }
 
 export interface Tenant {

@@ -92,7 +92,7 @@ function Pagination({ page, total, pageSize, onChange }: {
 
 // ─── Expanded row ─────────────────────────────────────────────────────────────
 
-function ExpandedDeviceRow({ device, colSpan, activo }: { device: DeviceRecord; colSpan: number; activo?: ActivoRecord }) {
+function ExpandedDeviceRow({ device, colSpan, activo, chassisFieldOverride }: { device: DeviceRecord; colSpan: number; activo?: ActivoRecord; chassisFieldOverride?: string | null }) {
   const [vehicleDetail, setVehicleDetail] = useState<VehicleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [customFields,  setCustomFields]  = useState(device.custom_fields ?? []);
@@ -168,7 +168,9 @@ function ExpandedDeviceRow({ device, colSpan, activo }: { device: DeviceRecord; 
               <>
                 <InfoChip icon={<Tag className="w-3.5 h-3.5 text-emerald-400" />} bg="bg-emerald-500/15" label="Placa" value={vehicleDetail.ras_vei_placa || "—"} mono />
                 <InfoChip icon={<Calendar className="w-3.5 h-3.5 text-amber-400" />} bg="bg-amber-500/15" label="Año" value={vehicleDetail.ras_vei_ano || "—"} />
-                <InfoChip icon={<Palette className="w-3.5 h-3.5 text-violet-400" />} bg="bg-violet-500/15" label="Color" value={(vehicleDetail.ras_vei_cor || "—").toLowerCase()} />
+                <InfoChip icon={<Palette className="w-3.5 h-3.5 text-violet-400" />} bg="bg-violet-500/15"
+                  label={chassisFieldOverride === "ras_vei_cor" ? "VIN" : "Color"}
+                  value={vehicleDetail.ras_vei_cor || "—"} />
                 <InfoChip icon={<Gauge className="w-3.5 h-3.5 text-rose-400" />} bg="bg-rose-500/15" label="Odómetro"
                   value={vehicleDetail.ras_vei_odometro ? `${Number(vehicleDetail.ras_vei_odometro).toLocaleString("es-MX")} km` : "—"} />
               </>
@@ -931,7 +933,7 @@ export function Dashboard({ onLogout, session }: DashboardProps) {
                               </td>
                             </tr>
                             {isExpanded && (
-                              <ExpandedDeviceRow device={device} colSpan={COL_COUNT} activo={activosByImei[device.imei]} />
+                              <ExpandedDeviceRow device={device} colSpan={COL_COUNT} activo={activosByImei[device.imei]} chassisFieldOverride={session?.chassis_field_override} />
                             )}
                           </React.Fragment>
                         );

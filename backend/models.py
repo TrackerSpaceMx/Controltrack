@@ -230,6 +230,7 @@ class LoginResponseV2(BaseModel):
     is_superadmin: bool = False
     activos_enabled: bool = False
     client_scope: Optional[List[str]] = None
+    chassis_field_override: Optional[str] = None
 
 
 # ─── WhatsApp ─────────────────────────────────────────────────────────────────
